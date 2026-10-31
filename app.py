@@ -8,8 +8,8 @@ from rag.ingest import chunk_text, clean, extract_text
 from rag.llm import RetrievalOnlyLLM, load_llm
 from rag.screen import screen_resume
 
-st.set_page_config(page_title="RAG Resume Screener", layout="wide")
-st.title("Efficient RAG + Quantized LLM Resume Screener")
+st.set_page_config(page_title="Resume Screener", layout="wide")
+st.title("Resume Screener")
 st.caption("Retrieves only the resume passages relevant to each job requirement, "
            "then a quantized local LLM scores and explains the match.")
 

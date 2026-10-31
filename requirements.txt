@@ -1,0 +1,14 @@
+streamlit>=1.35
+numpy>=1.26
+scikit-learn>=1.4
+pypdf>=4.0
+python-docx>=1.1
+pandas>=2.0
+scipy>=1.11
+psutil>=5.9
+# Dense embeddings (recommended; app falls back to TF-IDF if missing)
+sentence-transformers>=3.0
+# Quantized LLM runtime (GGUF). On Windows install a prebuilt wheel:
+#   pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+llama-cpp-python>=0.2.90
+huggingface_hub>=0.23

@@ -1,0 +1,7 @@
+Junior Data Scientist
+- Proficiency in Python and pandas for data analysis
+- Experience building machine learning models with scikit-learn
+- Knowledge of SQL and relational databases
+- Experience with data visualization and dashboards
+- Familiarity with NLP or large language models
+- Strong written and verbal communication skills

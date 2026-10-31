@@ -1,0 +1,5 @@
+Candidate B
+Diploma in Information Technology, 2023.
+Experience: Data entry clerk for two years. Used Excel and some Python scripts to clean spreadsheets. Basic SQL queries for reports. Built simple charts in Excel.
+Projects: Completed an online course in machine learning basics and trained one regression model with scikit-learn.
+Skills: Excel, basic Python, basic SQL, teamwork.

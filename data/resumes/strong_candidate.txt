@@ -1,0 +1,5 @@
+Candidate A
+BSc Computer Science and Data Science, 2025.
+Experience: Data Science Intern at a fintech company. Built churn prediction models in Python using pandas and scikit-learn, improving recall by 12 percent. Wrote SQL queries against PostgreSQL to prepare training data. Created Power BI and Streamlit dashboards for managers.
+Projects: Fine-tuned a small language model for text classification and built a retrieval-augmented chatbot using sentence embeddings. Presented findings to non-technical stakeholders and wrote project documentation.
+Skills: Python, pandas, scikit-learn, SQL, NLP, LLMs, data visualization, communication.

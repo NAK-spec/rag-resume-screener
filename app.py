@@ -2,6 +2,7 @@
 import pandas as pd
 import streamlit as st
 
+from rag import auth
 from rag.config import MODELS
 from rag.index import Embedder, ResumeIndex
 from rag.ingest import chunk_text, clean, extract_text
@@ -12,6 +13,43 @@ st.set_page_config(page_title="Resume Screener", layout="wide")
 st.title("Resume Screener")
 st.caption("Retrieves only the resume passages relevant to each job requirement, "
            "then a quantized local LLM scores and explains the match.")
+
+auth.init_db()
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+if st.session_state.user is None:
+    st.subheader("Sign in to continue")
+    tab_login, tab_signup = st.tabs(["Log in", "Sign up"])
+    with tab_login:
+        with st.form("login_form"):
+            u = st.text_input("Username")
+            p = st.text_input("Password", type="password")
+            if st.form_submit_button("Log in", type="primary"):
+                name = auth.verify_user(u, p)
+                if name:
+                    st.session_state.user = name
+                    st.rerun()
+                else:
+                    st.error("Wrong username or password.")
+    with tab_signup:
+        with st.form("signup_form"):
+            u2 = st.text_input("Choose a username")
+            p2 = st.text_input("Choose a password (8+ characters)", type="password")
+            p3 = st.text_input("Repeat password", type="password")
+            if st.form_submit_button("Create account"):
+                if p2 != p3:
+                    st.error("Passwords do not match.")
+                else:
+                    ok, msg = auth.create_user(u2, p2)
+                    (st.success if ok else st.error)(msg)
+    st.stop()
+
+with st.sidebar:
+    st.write(f"Signed in as **{st.session_state.user}**")
+    if st.button("Log out"):
+        st.session_state.user = None
+        st.rerun()
 
 
 @st.cache_resource(show_spinner="Loading model...")

@@ -126,9 +126,13 @@ def main():
     print(f"embedder: {index.embedder.kind} | sim_floor: {SIM_FLOOR[index.embedder.kind]} "
           f"| resumes: {len(resumes)} | chunks: {len(chunks)}")
     if index.embedder.kind == "tfidf":
-        print("[caveat] TF-IDF retrieval, not the dense embedder - the similarity floor "
-              f"in rag/config.py was swept for tfidf only. Dense load error: "
-              f"{index.embedder.dense_error}")
+        floor = SIM_FLOOR["dense"]
+        print(f"[note] tfidf run: comparable only to other tfidf runs. The floors are on "
+              f"different scales (tfidf {SIM_FLOOR['tfidf']} vs dense {floor}), so a dense "
+              "row is not a re-scoring of this one.")
+        if index.embedder.dense_error:
+            print(f"[warn] dense embedder unavailable on this machine: "
+                  f"{index.embedder.dense_error}")
     print(f"resume length: min {min(words)} / mean {round(np.mean(words))} / "
           f"max {max(words)} words")
 

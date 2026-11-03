@@ -88,6 +88,10 @@ def main():
                          "19 LLM calls (baseline + 15 identity variants + 3 placebo); "
                          "0 means all)")
     ap.add_argument("--out", default="bias_results.csv")
+    ap.add_argument("--floor", type=float, default=None,
+                    help="override SIM_FLOOR for the embedder that actually ran. The "
+                         "value is echoed in this run's header line; editing rag/config.py "
+                         "instead leaves no trace of which audit used which floor.")
     args = ap.parse_args()
 
     data = Path(args.data)
@@ -106,6 +110,8 @@ def main():
     chunks = [c for vid, t in variants.items() for c in chunk_text(vid, t)]
     index = ResumeIndex(embedder_for(args.embedder))
     index.build(chunks, extra_corpus=[jd])
+    if args.floor is not None:
+        SIM_FLOOR[index.embedder.kind] = args.floor
 
     llm = RetrievalOnlyLLM() if args.model.startswith("Retrieval") else load_llm(MODELS[args.model])
     print(f"Model: {getattr(llm, 'name', args.model)} | embedder: {index.embedder.kind} "

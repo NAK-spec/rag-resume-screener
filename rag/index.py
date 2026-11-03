@@ -10,13 +10,15 @@ class Embedder:
         self.kind = "tfidf"
         self.model = None
         self.tfidf = None
+        self.dense_error: str | None = None
         if prefer_dense:
             try:
                 from sentence_transformers import SentenceTransformer
                 self.model = SentenceTransformer(EMBED_MODEL)
                 self.kind = "dense"
-            except Exception:
+            except Exception as e:
                 self.model = None
+                self.dense_error = f"{type(e).__name__}: {e}"
 
     def fit(self, corpus: list[str]):
         if self.kind == "tfidf":
@@ -36,6 +38,21 @@ class Embedder:
         return m / n
 
 
+def embedder_for(preference: str = "auto") -> Embedder:
+    """Build the embedder a study asked for, and fail loudly if it is not what ran.
+
+    `auto` silently drops to TF-IDF when sentence-transformers is missing, which is fine
+    for the app but not for a comparison of embedders: a run that meant to be dense and
+    got tfidf would report a floor value tuned on the wrong similarity scale.
+    """
+    emb = Embedder(prefer_dense=(preference != "tfidf"))
+    if preference != "auto" and emb.kind != preference:
+        raise RuntimeError(
+            f"--embedder {preference} requested but {emb.kind} was built "
+            f"(dense load error: {emb.dense_error})")
+    return emb
+
+
 class ResumeIndex:
     """In-memory cosine-similarity index over resume chunks."""
 
@@ -50,12 +67,15 @@ class ResumeIndex:
         self.embedder.fit(texts + (extra_corpus or []))
         self.matrix = self.embedder.encode(texts)
 
-    def search(self, query: str, resume_id: str, k: int = 4):
-        """Top-k chunks of ONE resume for a query. Returns [(score, Chunk)]."""
+    def search(self, query: str, resume_id: str, k: int = 4, min_score: float = 0.0):
+        """Top-k chunks of ONE resume for a query, keeping only chunks at or above
+        `min_score`. Returns [(score, Chunk)] — possibly empty, which is the point:
+        no supporting passage must not be reported as a passage."""
         idx = [i for i, c in enumerate(self.chunks) if c.resume_id == resume_id]
         if not idx:
             return []
         q = self.embedder.encode([query])[0]
         sims = self.matrix[idx] @ q
         order = np.argsort(-sims)[:k]
-        return [(float(sims[o]), self.chunks[idx[o]]) for o in order]
+        hits = [(float(sims[o]), self.chunks[idx[o]]) for o in order]
+        return [h for h in hits if h[0] >= min_score]

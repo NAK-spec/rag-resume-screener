@@ -6,9 +6,24 @@ python-docx>=1.1
 pandas>=2.0
 scipy>=1.11
 psutil>=5.9
-# Dense embeddings (recommended; app falls back to TF-IDF if missing)
+# Dense embeddings (recommended; the app falls back to TF-IDF if this is missing).
+# Pulls torch, ~127 MB on Windows. On a flaky connection PyPI's torch wheel can crawl at
+# <10 KB/s; the CPU index is measurably faster (~50-100 KB/s on the same link) and is the
+# wheel you want anyway on a CPU-only box. Verified route on Python 3.13 / win_amd64:
+#   pip download --only-binary=:all: --index-url https://download.pytorch.org/whl/cpu ^
+#     --no-deps torch -d C:\temp\torchdl                       # 127 MB, resumable by re-run
+#   pip install --only-binary=:all: "setuptools>=77.0.3" sympy networkx fsspec jinja2
+#   pip install --no-index C:\temp\torchdl\torch-2.15.0+cpu-cp313-cp313-win_amd64.whl
+#   pip install --only-binary=:all: sentence-transformers      # torch is now satisfied
+# Verified install: torch 2.15.0+cpu, sentence-transformers 6.2.0.
 sentence-transformers>=3.0
-# Quantized LLM runtime (GGUF). On Windows install a prebuilt wheel:
-#   pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
-llama-cpp-python>=0.2.90
+# Quantized LLM runtime (GGUF). PyPI only ships an sdist for this, which needs a C++
+# toolchain; the CPU wheel index below is what makes `pip install` work on Windows.
+# The wheels there are tagged cp3XX / py3-none-win_amd64, so --only-binary=:all: is
+# required or pip falls back to building from source and fails:
+#   pip install --only-binary=:all: ^
+#     --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu ^
+#     llama-cpp-python
+# Verified available for Python 3.13 on win_amd64 (0.3.36-py3-none-win_amd64.whl).
+llama-cpp-python>=0.3.19
 huggingface_hub>=0.23

@@ -3,6 +3,5 @@ __pycache__/
 *.pyc
 models/
 *.gguf
-results.csv
 .env
 users.db

@@ -71,7 +71,7 @@ with st.sidebar:
     mode = st.radio("Context strategy", ["rag", "full"],
                     format_func=lambda m: "RAG (retrieved evidence)" if m == "rag"
                     else "Full resume (baseline)")
-    top_k = st.slider("Chunks retrieved per requirement", 1, 8, 4)
+    top_k = st.slider("Chunks retrieved per requirement", 1, 8, 3)
 
 jd = st.text_area("Job description (one requirement per line works best)", height=180,
                   value="- Python and pandas\n- Machine learning with scikit-learn\n"
@@ -88,6 +88,10 @@ if st.button("Screen candidates", type="primary") and files and jd.strip():
     if variant != "Retrieval-only (no LLM)" and isinstance(llm, RetrievalOnlyLLM):
         st.warning(f"Model file for '{variant}' not found in ./models - using "
                    "retrieval-only scoring. See README to download it.")
+    if index.embedder.kind == "tfidf":
+        st.caption(f"Retrieval: TF-IDF (dense unavailable - "
+                   f"{index.embedder.dense_error}). The similarity floor is tuned for this "
+                   "embedder only.")
 
     results = []
     bar = st.progress(0.0)
@@ -111,10 +115,15 @@ if st.button("Screen candidates", type="primary") and files and jd.strip():
             c1, c2 = st.columns(2)
             c1.markdown("**Matched**\n" + "\n".join(f"- {m}" for m in r.matched))
             c2.markdown("**Missing**\n" + "\n".join(f"- {m}" for m in r.missing))
-            if r.evidence:
-                st.markdown("**Retrieved evidence**")
-                for req, snippets in r.evidence.items():
-                    st.markdown(f"*{req}*")
-                    st.caption(snippets[0] if snippets else "-")
+            if r.evidence_refs:
+                st.markdown("**What the model was shown**")
+                st.caption(f"{len({p for ps in r.evidence_refs.values() for p in ps})} "
+                           f"unique passages, {r.prompt_words} prompt words "
+                           f"(retrieved evidence only, not the whole resume)")
+                for i, (req, refs) in enumerate(r.evidence_refs.items(), 1):
+                    st.markdown(f"**[{i}]** {req} → " + (", ".join(refs) if refs
+                                                         else "*no supporting passage*"))
+                for s in dict.fromkeys(s for snips in r.evidence.values() for s in snips):
+                    st.caption(s)
     st.info("Scores support, not replace, human review. Name and personal "
             "attributes are instructed to be ignored; audit for bias before real use.")

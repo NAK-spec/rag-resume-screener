@@ -49,6 +49,15 @@ class QuantizedLLM:
         return GenResult(text, dt, ntok, _rss_mb())
 
 
+# Similarity anchors used to turn a raw cosine score into a 0-1 fit score.
+# Dense MiniLM and TF-IDF cosine live on very different scales, so a single
+# threshold made the fallback score a strong candidate 10/100.
+SIM_ANCHORS = {
+    "dense": (0.20, 0.55),
+    "tfidf": (0.05, 0.30),
+}
+
+
 class RetrievalOnlyLLM:
     """Fallback used when no GGUF model is available (demo / tests).
 
@@ -65,9 +74,11 @@ class RetrievalOnlyLLM:
         meta = meta or {}
         reqs = meta.get("requirements", [])
         sims = meta.get("req_scores", [])
-        matched = [r for r, s in zip(reqs, sims) if s >= 0.28]
-        missing = [r for r, s in zip(reqs, sims) if s < 0.28]
-        score = round(100 * sum(min(1.0, s / 0.5) for s in sims) / max(1, len(sims)))
+        lo, hi = SIM_ANCHORS.get(meta.get("embedder", "dense"), SIM_ANCHORS["dense"])
+        fit = [min(1.0, max(0.0, (s - lo) / (hi - lo))) for s in sims]
+        matched = [r for r, f in zip(reqs, fit) if f >= 0.5]
+        missing = [r for r, f in zip(reqs, fit) if f < 0.5]
+        score = round(100 * sum(fit) / max(1, len(fit)))
         text = json.dumps({
             "score": int(max(0, min(100, score))),
             "matched": matched, "missing": missing,

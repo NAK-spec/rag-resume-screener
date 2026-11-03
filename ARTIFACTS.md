@@ -1,75 +1,155 @@
 # Measurement artifacts
 
 Every number quoted in `README.md` traces to one of the committed files below. This index
-exists because the repo contains results from **four different retrieval configurations**
-of the same 33 resumes, and three of them produced different headline correlations. A
-file named `results_*.csv` is not a synonym for `results.csv`.
+exists because the repo contains results from **two corpora x four retrieval configurations**
+of the same 33 resumes, and three of those configurations produced different headline
+correlations. A file named `results_*.csv` is not a synonym for `results_v2.csv`.
+
+## The two corpora
+
+On 2026-11-03 the dataset was found to contain 12 `Experience:` date ranges running backwards
+(`2023-2022`) across 10 of the 30 generated CVs, and the generator was fixed. Every artifact
+below is tagged with which corpus it was measured on:
+
+| tag | corpus | how to tell |
+|---|---|---|
+| **v2** | corrected | filename contains `_v2`; `data/check_dataset.py` reports 0 FAIL / 2 WARN and no drift |
+| pre | superseded corpus | everything without `_v2`; `check_dataset.log` at git `b043eb8` reported 12 FAIL / 3 WARN |
+
+**The headline is the v2 pair (`results_v2.csv` + `results_v2_repeat.csv`), not `results.csv`.**
+The two files carry the same quality numbers - 0 of 33 RAG scores moved - which is the point:
+the corpus defect was cosmetic for retrieval, and its one real effect was to *hide* how
+degenerate the full-context baseline is (2 distinct scores became 1). Read the pair as one
+reproduced result, and read `results.csv` as its audit trail.
 
 ## How to read a run
 
 | to learn | look at |
 |---|---|
+| which corpus | `_v2` in the filename, or the table above |
 | which embedder ran | the `embedder` column in the CSV, or the first `embedder:` line of the `.log` |
-| which floor was in force | `bias_q4.log` echoes `sim_floor`. **No `evaluate.py`/`sweep_floor.py` log here echoes it** - they predate that line. For sweeps, the chosen floor is the row marked `*`; for evals, use the filename plus the table below |
-| whether the row is quotable | `modal_share` > 0.5 means most candidates got one score and the rho is carried by outliers |
+| which floor was in force | every `results_v2*` / `eval_v2*` log echoes `sim_floor:`. The pre-correction logs **do not** - their floor is whatever `rag/config.py` held at the time, recoverable only from the filename and this index |
+| whether the row is quotable | `modal_share` > 0.5 means most candidates got one score and the rho is carried by outliers; empty `spearman`/`kendall` means the mode emitted one single value and no rank exists |
 | how a claim was computed | `README.md` names the file next to each table |
-
-The floor in force is *not* recorded inside the eval logs, so any of the older CSVs can
-only be attributed by filename plus this index. `evaluate.py --floor <x>` now prints the
-value into the run's first log line, so runs from here on are self-describing.
 
 ## Evaluation runs (33 resumes x 2 modes)
 
-| file | embedder | floor | scorer | rag rho | rag MAE | backs | status |
-|---|---|---|---|---|---|---|---|
-| `results.csv` | tfidf | 0.024 | Q4_K_M | **0.753** | 23.91 | headline RAG-vs-full table | headline. **Byte-identical to `results_floor024.csv` (md5 `f2ae77cd`): one process, not a reproduction.** A repeat run is still outstanding |
-| `results_floor024.csv` | tfidf | 0.024 | Q4_K_M | 0.753 | 23.91 | same rows as `results.csv` | duplicate of the above |
-| `per_resume.csv` / `per_resume_floor024.csv` | tfidf | 0.024 | Q4_K_M | - | - | per-candidate rows behind the floor, degeneracy (20 of 33 on score 20) and ±10 tables | identical pair, same md5 `ca20a7ee` |
-| `results_dense.csv` | dense | 0.24 | Q4_K_M | 0.668 | 16.58 | "TF-IDF vs dense retrieval" table | single dense process; `modal_share` 0.576 (19 of 33 on 80) |
-| `per_resume_dense.csv` | dense | 0.24 | Q4_K_M | - | - | the dense row of the degeneracy table | - |
-| `results_floor030.csv` | tfidf | 0.030 | Q4_K_M | 0.560 | 27.76 | floor-sensitivity discussion | **superseded** by the swept 0.024 run |
-| `results_q4_tfidf.csv` | tfidf | 0.030 | Q4_K_M | 0.560 | 27.76 | same measurement as `results_floor030.csv`, different filename | superseded; `eval_q4_tfidf.log` and `eval_rerun_tfidf.log` both print 0.560 |
-| `results_tfidf_q4.csv` | tfidf | unrecorded | Q4_K_M | **-0.083** | 32.30 | - | **pre-floor run. No committed log backs it. Do not quote.** Its `full` row (0.084) is also pre-floor |
-| `results_fallback.csv` | not in schema | unrecorded | retrieval-only | 0.306 | 54.48 | no-LLM baseline | written before the `embedder` column existed |
-| `results_fallback_floor024.csv` | tfidf | 0.024 | retrieval-only | 0.306 | 54.48 | "No-LLM baseline" section | identical rho/MAE to the row above: below `SIM_ANCHORS["tfidf"]`'s 0.05 the fallback score is floor-insensitive, which is why the baseline cannot be read as evidence for the floor |
+**Corrected corpus - these are the quotable ones.**
 
-The `full` rows of the tfidf files all report rho 0.262 / MAE 30.48. That is not a
-copy-paste error: `mode="full"` never looks at retrieved evidence, so with
-`temperature=0` the same process-independent scores come out of any floor. They differ in
-`peak_rss_mb` only.
+| file | embedder | floor | scorer | rag rho | rag MAE | status |
+|---|---|---|---|---|---|---|
+| `results_v2.csv` | tfidf | 0.024 | Q4_K_M | **0.753** | 23.91 | **headline.** Backed by `eval_v2.log`, which echoes `embedder: tfidf \| sim_floor: 0.024` |
+| `results_v2_repeat.csv` | tfidf | 0.024 | Q4_K_M | **0.753** | 23.91 | **independent second process.** 0 of 66 mode x resume rows differ on score, `matched`, passages or prompt words; only latency moves (13.33 -> 12.85 s). This is what makes 0.753 a reproduced number |
+| `per_resume_v2.csv` / `per_resume_v2_repeat.csv` | tfidf | 0.024 | Q4_K_M | - | - | per-candidate rows behind the floor, degeneracy (20 of 33 on score 20), +-10, coverage-divergence and prompt-length tables |
+| `results_v2_fallback.csv` | tfidf | 0.024 | retrieval-only | 0.306 | 54.48 | "No-LLM baseline" section. rho/tau/MAE identical to the pre-correction `results_fallback_floor024.csv` - the baseline is floor-insensitive below its `SIM_ANCHORS` 0.05, so it cannot see the corpus edit either |
+| `per_resume_v2_fallback.csv` | tfidf | 0.024 | retrieval-only | - | - | per-candidate fallback rows (12 distinct scores, modal share 0.303 - it is coarse but not degenerate) |
+| `results_v2_dense.csv` | dense | 0.24 | Q4_K_M | 0.670 | 16.55 | **dense headline on the corrected corpus**, backed by `eval_v2_dense.log` (`embedder: dense \| sim_floor: 0.24`). `modal_share` 0.576 (19 of 33 on 80), 4 distinct scores |
+| `per_resume_v2_dense.csv` | dense | 0.24 | Q4_K_M | - | - | its per-candidate rows; also the file that shows `full` mode scoring 85 for all 33 candidates under *both* embedders |
+
+**Superseded corpus - retained so the correction is checkable, not because they are quotable.**
+
+| file | embedder | floor | scorer | rag rho | rag MAE | note |
+|---|---|---|---|---|---|---|
+| `results.csv` | tfidf | 0.024 | Q4_K_M | 0.753 | 23.91 | **byte-identical to `results_floor024.csv`** (md5 `f2ae77cd`): one process, not a reproduction. Same quality figures as `results_v2.csv`, different corpus |
+| `results_floor024.csv` | tfidf | 0.024 | Q4_K_M | 0.753 | 23.91 | duplicate of the above |
+| `per_resume.csv` / `per_resume_floor024.csv` | tfidf | 0.024 | Q4_K_M | - | - | duplicate pair (md5 `ca20a7ee`) |
+| `results_dense.csv` | dense | 0.24 | Q4_K_M | 0.668 | 16.58 | pre-correction dense run, single process. Superseded by `results_v2_dense.csv`, but the two agree (0.668 / 16.58 vs 0.670 / 16.55) after exactly one candidate's score moved |
+| `per_resume_dense.csv` | dense | 0.24 | Q4_K_M | - | - | its per-candidate rows; `full` mode here is what proved full-context scores are embedder-independent |
+| `results_floor030.csv` | tfidf | 0.030 | Q4_K_M | 0.560 | 27.76 | the floor A/B (0.030 vs the swept 0.024) |
+| `results_q4_tfidf.csv` | tfidf | 0.030 | Q4_K_M | 0.560 | 27.76 | **not a copy of the row above** - a second process at the same floor, differing only in timing. Two independent runs agreed byte-for-byte on quality before the schema recorded `sim_floor` |
+| `results_tfidf_q4.csv` | tfidf | unrecorded (0.0 = no floor) | Q4_K_M | **-0.083** | 32.30 | the pre-floor ablation. **No committed log backs it.** Quoted only as the left end of the floor curve, never as a headline |
+| `results_fallback.csv` | not in schema | unrecorded | retrieval-only | 0.306 | 54.48 | written before the `embedder` column existed |
+| `results_fallback_floor024.csv` | tfidf | 0.024 | retrieval-only | 0.306 | 54.48 | the same baseline on the old corpus |
+
+The `full` rows of the pre-correction tfidf files all report rho 0.262 / MAE 30.48. That is
+not a copy-paste error: `mode="full"` never looks at retrieved evidence, so with
+`temperature=0` the same scores come out of any floor. They differ in `peak_rss_mb` only.
+On the **corrected** corpus all four `full` rows (`results_v2.csv`, `results_v2_repeat.csv`,
+`results_v2_dense.csv` and the tfidf/dense pair before them) report **empty** rho and
+`modal_share` 1.0 - all 33 candidates score 85 - which is the finding, not a regression.
+
+### Latency is not comparable across files
+
+Each LLM run is a separate process on one shared 4-thread CPU, so wall-clock columns drift
+with host state while quality columns do not. Measured on this corpus:
+
+| comparison | same config? | latency | output length | verdict |
+|---|---|---|---|---|
+| `results_v2.csv` vs `results_v2_repeat.csv` (rag) | yes | 13.33 -> 12.85 s | identical | ~4% host noise - the reproduction |
+| `results_dense.csv` vs `results_v2_dense.csv` (rag) | different corpus | 16.19 -> 12.64 s | 90.8 -> 88.1 words | all 33 candidates faster; host state, not content |
+| rag vs full *inside* any one file | - | -34% to -37% | - | **the only latency claim worth quoting** |
+
+RSS is the exception: 2,079 / 2,119 / 2,463 / 2,487 MB are stable enough between processes to
+compare, because the number is dominated by loaded weights rather than by CPU contention.
+So `results_v2_dense.csv` being 12.6 s and `results_v2.csv` 13.3 s must **not** be read as
+"dense retrieval is faster"; it means the dense process got a quieter machine.
 
 ## Floor sweeps
 
-| file | embedder | what it is |
-|---|---|---|
-| `sweep_tfidf.log` | tfidf | floors 0.000-0.064+; peak str-weak gap **2.75 at 0.024** (marked `*`). Source of `SIM_FLOOR["tfidf"]` |
-| `sweep_dense.log` | dense | the same grid on MiniLM similarities; peak **2.31 at 0.24**. Source of `SIM_FLOOR["dense"]`. First two lines are `sentence-transformers` progress-bar noise, not an error |
+| file | embedder | corpus | what it is |
+|---|---|---|---|
+| `sweep_tfidf_v2.log` | tfidf | corrected | floors 0.000-0.080; peak str-weak gap **2.75 at 0.024** (marked `*`). Source of the current `SIM_FLOOR["tfidf"]`. Differs from the old grid in one row (0.008: gap 1.69 vs 1.78) |
+| `sweep_dense_fine_v2.log` | dense | corrected | 0.030-step grid across the peak. Source of `SIM_FLOOR["dense"]` = 0.24 and of the "flat from 0.24 to 0.27" reading in README |
+| `sweep_dense_v2.log` | dense | corrected | 0.050-step grid out to 0.500; shows the collapse past the peak (gap 0.02 at 0.500). First two lines are `sentence-transformers` progress-bar noise, not an error |
+| `sweep_tfidf.log` / `sweep_dense.log` | tfidf / dense | superseded | the same grids on the old corpus. Kept to show that re-deriving the floors on the corrected data lands on the same two values |
 
-The two grids are not comparable value-for-value: TF-IDF unit-vector cosine and MiniLM
-cosine live on scales ~10x apart, which is the entire reason `SIM_FLOOR` is a dict.
+The two grids are not comparable value-for-value: TF-IDF unit-vector cosine and MiniLM cosine
+live on scales ~10x apart, which is the entire reason `SIM_FLOOR` is a dict. Neither sweep
+involved the LLM.
 
 ## Fairness audit
 
 | file | variants | what it is |
 |---|---|---|
-| `bias_q4.csv` + `bias_q4.log` | 108 rows = 6 resumes x 18 comparisons | the Q4_K_M audit **with the placebo factor**. Headline: mean abs delta 13.39 for identity vs 14.72 for content-free placebo lines |
-| `bias_retrieval_only_control.csv` | 108 rows | same variants scored by the no-LLM baseline, to separate scorer noise from model behaviour |
-| `bias_results.csv` | 45 rows = 3 resumes x 4 factors | the pre-placebo audit. **Superseded**: without a placebo it could not attribute a uniform shift. Its numbers still appear in old notes - do not quote them |
+| `bias_q4.csv` + `bias_q4.log` | 108 rows = 6 resumes x 18 comparisons | the Q4_K_M audit **with the placebo factor**, tfidf at floor 0.024. Headline: mean abs delta 13.39 for identity vs 14.72 for content-free placebo lines. The only log in the repo that echoed `sim_floor` before the `_v2` runs |
+| `bias_retrieval_only_control.csv` | 108 rows | the same 114 variants scored without an LLM, to separate scorer noise from model behaviour: max delta 2 points |
+| `bias_results.csv` | 45 rows = 3 resumes x 4 factors | the pre-placebo audit. **Do not quote**: without a placebo it could not attribute a uniform shift, and the claim it supports ("names lower the score") is the one the placebo dissolved |
 | `bias_control.log` | 96 variants, no `sim_floor` field | retrieval-only control run from before the placebo existed |
+
+**Not re-run on the corrected corpus, and that is checkable rather than asserted.**
+`bias_audit.py --limit 6` takes the first six resumes in sorted order
+(`medium_candidate.txt`, `r01_weak.txt`-`r05_strong.txt`); none of those ten files is among
+the ten the correction edited, so the audit's inputs are byte-identical across both corpora.
+The audit is also the one measurement whose conclusion does not depend on the score scale:
+the placebo moved scores *more* than the identity factors, so a shift in either direction
+still fails to separate them.
 
 ## Dataset
 
 | file | what it is |
 |---|---|
-| `data/resumes/*.txt`, `data/labels.csv`, `data/job_description.txt` | 33 labelled resumes (30 generated at seed 7 + 3 hand-written, labels 10/50/90) |
-| `data/generate_dataset.py` | the generator. Deterministic at `--seed 7 --n 30` |
-| `data/check_dataset.py` | integrity + drift checker. `python data/check_dataset.py` |
-| `data/check_dataset.log` | its last run: **12 FAIL / 3 WARN**. The FAILs are the reversed experience ranges (12 lines across 10 files, e.g. `2023-2022`) that the shipped dataset still contains; the WARNs are the two 39/56-word hand-written CVs and the generator drift. The drift is confined to those same 12 `Experience:` lines, so the fix in `role_years()` changes nothing else |
+| `data/resumes/*.txt`, `data/labels.csv`, `data/job_description.txt` | 33 labelled resumes (30 generated at seed 7 + 3 hand-written, labels 10/50/90) - **the corrected text** |
+| `data/generate_dataset.py` | the generator. Deterministic at `--seed 7 --n 30`. `role_years()` is the date-range fix |
+| `data/check_dataset.py` | integrity + drift checker. `python data/check_dataset.py` (no model needed) |
+| `data/check_dataset.log` | its last run: **0 FAIL / 2 WARN, no generator drift**. The 2 WARNs are the 39- and 56-word hand-written CVs, under the 60-word floor the evidence budget was sized for - they are illustrations of the pipeline, not efficient cases |
+| git `b043eb8` | the checker's previous output (**12 FAIL / 3 WARN + drift**), i.e. the defect and its fix, both in history |
 
-The shipped resumes were measured with those backwards date ranges in them. `role_years()`
-fixes the generator, but the dataset has **not** been regenerated, because that would
-change chunk text for 10 of 33 resumes and invalidate every results CSV above. Regenerate
-and re-evaluate together, or leave both alone.
+## Do not quote
+
+- `results_tfidf_q4.csv` (-0.083) as a headline or as "RAG does not work" - it is the
+  no-floor ablation, has no backing log, and its `full` row (0.084) is also pre-floor.
+- `results.csv` / `results_floor024.csv` as a *reproduction* of `results_v2.csv` - same
+  numbers, different corpus, and they are one process between them, not two.
+- `bias_results.csv` - pre-placebo.
+- Any rho from a `full` row on the corrected corpus - there is none; the mode emits one value.
+- Any ordering of the two embedders from 0.753 vs 0.668 - the Fisher-z intervals at n = 33
+  overlap almost completely ([0.553, 0.871] vs [0.421, 0.823]).
+- "The floor was re-tuned on the corrected corpus" as a change - re-deriving both grids lands
+  on 0.024 and 0.24 again; the dense argmax at 0.25 is 2 requirement-matches out of 198 and
+  was deliberately not chased (README, "Why the dense floor stays at 0.240").
+
+## Prompt inflation, measured without an LLM
+
+| file | what it is |
+|---|---|
+| `prompt_inflation.log` | `python prompt_inflation.py` - rebuilds the pre-dedup prompt exactly as `rag/screen.py` stood at commit `9d2e10a` (`TOP_K=4`, no floor, no dedup, no budget) and measures it against the current path on the corrected corpus. Evidence block **1,517 pasted words vs a 222-word document = 6.8x**; whole prompt **1,671 vs the 304-word full-context baseline**; current path **69 / 0.37x** and **172** prompt words. No model, no GGUF, runs in seconds |
+| `prompt_inflation.py` | the script. It carries a note that the prompt *totals* conflate two fixes (the old path also pasted the whole job description), which is why the evidence-block figure is the one quoted for dedup |
+
+**This replaced a number that could not be checked.** Earlier drafts of README claimed "304 ->
+416 words" for the same bug; that was measured live during the fix and never saved, so no
+committed file backed it. Re-deriving it from the git-recovered code gives 1,671 mean, not 416
+- the old figure was almost certainly measured on the three short hand-written CVs before the
+30 generated resumes existed. Quote `prompt_inflation.log`, not the retired 416.
 
 ## Scratch
 

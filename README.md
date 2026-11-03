@@ -23,9 +23,18 @@ The evidence step matters. Retrieving top-k chunks *per requirement* and concate
 them repeats the same resume text five or six times over, which made the "efficient" RAG
 prompt **longer** than the full-resume baseline it was meant to beat. `select_evidence()`
 keeps every chunk once, ranked by its best similarity across all requirements, under a
-budget that scales with the document (`rag/screen.py:54`). Measured on the 33-resume set,
-that turns the RAG prompt from 304 -> 416 words (i.e. *longer* than the baseline it was
-supposed to beat) into 304 -> 172 words.
+budget that scales with the document (`rag/screen.py:73`).
+
+That failure is now measured rather than remembered (`prompt_inflation.py`,
+`prompt_inflation.log` - retrieval only, no LLM, seconds to run). Rebuilding the historical
+prompt exactly as it stood at commit `9d2e10a` (`TOP_K=4`, no floor, no dedup, no budget) on
+the current 33 resumes: the evidence block alone was **1,517 words pasted against a 222-word
+document - 6.8x the resume**, and the whole prompt averaged 1,671 words versus the 304-word
+full-context baseline it was supposed to compress. The current path carries **69 evidence
+words (0.37x the document)** and 172 prompt words total. An earlier draft of this file quoted
+"304 -> 416 words" for the same bug; that was measured live during the fix, never written to
+an artifact, and re-deriving it lands 4x higher, so it has been replaced by the reproducible
+figures above.
 
 ## Setup (Windows, PowerShell)
 
@@ -94,18 +103,27 @@ Reproducible via the seed.
 `python data/check_dataset.py` verifies the corpus rather than trusting it: labels and
 files paired both ways, no duplicate texts, experience ranges ordered, and whether the
 generator in this checkout still reproduces the shipped text. Its current output
-(`data/check_dataset.log`) is 12 FAIL / 3 WARN, all of them the reversed experience
-described in Limitations.
+(`data/check_dataset.log`) is **0 FAIL / 2 WARN** with no generator drift; the 2 WARNs are
+the 39- and 56-word hand-written CVs, which are too short for retrieval to have anything to
+drop. The 12 reversed experience ranges it used to report are fixed and re-measured - see
+Limitations.
 
 ## Run
 
+Use the project venv for every command below. On this machine plain `python` resolves to a
+system 3.13 whose pandas install is broken (`ModuleNotFoundError:
+pandas._libs.pandas_parser`), so the analysis scripts only run under
+`.venv\Scripts\python.exe` - and a partially-importing pandas is exactly the kind of failure
+that would produce a half-populated results CSV.
+
 ```
 streamlit run app.py        # the app
-python evaluate.py --embedder tfidf --out results.csv --dump per_resume.csv
+python evaluate.py --embedder tfidf --out results_v2.csv --dump per_resume_v2.csv
 python sweep_floor.py --embedder tfidf --min-sim 0.08   # what each floor costs (no LLM)
+python prompt_inflation.py   # the pre-dedup prompt size, measured (no LLM)
 python bias_audit.py --limit 6 --embedder tfidf --model "Q4_K_M (4-bit)" --out bias_q4.csv
 python data/check_dataset.py   # dataset integrity + generator drift (no model needed)
-python tests/test_pipeline.py    # or: pytest tests -q
+python tests/test_pipeline.py    # pytest is not installed; the file is self-running
 ```
 
 The app's sidebar has a **Retriever** control, `TF-IDF (study headline)` (default) or
@@ -136,64 +154,92 @@ Each table names the file it came from; `ARTIFACTS.md` lists all of them, includ
 superseded ones that still sit in this directory.
 
 Setup actually measured: **Qwen2.5-1.5B-Instruct Q4_K_M** (1,117 MB GGUF, llama.cpp CPU),
-run twice over the same 33 resumes - once with **TF-IDF retrieval** and once with the dense
+run as three separate LLM processes over the same 33 corrected resumes - twice with
+**TF-IDF retrieval** (the second as an independent reproduction) and once with the dense
 **`all-MiniLM-L6-v2`** embedder (torch 2.15.0+cpu). Each embedder uses its own similarity
 floor, swept with `sweep_floor.py` (`rag/config.py`: `{"tfidf": 0.024, "dense": 0.24}`), and
 the runs are pinned with `--embedder` so a silent fallback cannot pass one run off as the
 other. n = 33 resumes, 111 chunks, 6 requirements.
 
-Artifacts: `results.csv` / `per_resume.csv` (TF-IDF LLM run - note `results.csv` is a
-byte-identical copy of `results_floor024.csv`, i.e. **one** process, not two runs),
-`results_dense.csv` / `per_resume_dense.csv` (dense LLM run), `results_floor024.csv` +
-`results_floor030.csv` (the floor A/B), `results_tfidf_q4.csv` (pre-floor ablation, kept for
-that comparison), `results_fallback_floor024.csv` (no-LLM baseline; `results_fallback.csv` is
-the superseded pre-fix version), `sweep_tfidf.log` + `sweep_dense.log` (the two floor grids),
-`bias_q4.csv` / `bias_q4.log`, `bias_retrieval_only_control.csv`.
+Artifacts, after the 2026-11-03 dataset correction (see Limitations - 12 `Experience:` date
+lines were repaired and the study re-measured): the headline is
+**`results_v2.csv` + `results_v2_repeat.csv`** and `per_resume_v2*.csv` - two separate
+processes whose 33 RAG scores and 33 matched-lists agree exactly, so the 0.753 is now a
+reproduced number rather than a single run - with **`results_v2_dense.csv`** as the dense
+counterpart on the same corrected corpus. The pre-correction equivalents
+(`results.csv` / `per_resume.csv`, byte-identical to `results_floor024.csv`, i.e. **one**
+process) are kept because they are what produced the earlier draft of these tables and they
+let the correction be measured rather than assumed: they differ from `results_v2.csv` by
+zero RAG scores and one `matched` count. Also kept: `results_dense.csv` (pre-correction
+dense run, superseded by `results_v2_dense.csv`), `results_floor024.csv` +
+`results_floor030.csv` (the floor A/B),
+`results_tfidf_q4.csv` (pre-floor ablation, kept for that comparison),
+`results_fallback*.csv` (no-LLM baseline), `sweep_*.log` (the floor grids, `*_v2` for the
+corrected corpus), `bias_q4.csv` / `bias_q4.log`, `bias_retrieval_only_control.csv`.
+`ARTIFACTS.md` is the full index - which file is which embedder and floor, which are
+duplicates, which are superseded, and which should not be quoted at all.
 Runs made from here on print both `embedder:` and `sim_floor:` in their first log line; the
 older artifacts print `embedder:` only, and their floor is whatever `rag/config.py` held at
 the time (0.024 / 0.030 for the two named above).
 (`bias_results.csv` is an earlier no-LLM prototype run; it predates every fix below and
 should not be quoted.)
 
-Reproduce (each LLM run is ~15-25 min of CPU generation on this machine; keep them serial,
-they contend for the same 4 threads and latency is part of what is being measured):
+Reproduce with `.\run_study.ps1` (fast stages only), `.\run_study.ps1 -WithModel -Repeat 2`
+for the evaluation pair, `-WithModel -WithDense` for the dense run, `-WithModel -WithBias`
+for the audit. `-WithDense`/`-WithBias` without `-WithModel` is an error rather than a silent
+no-op. Each LLM run is ~15-25 min of CPU generation on this machine; keep them serial, they
+contend for the same 4 threads and latency is part of what is being measured - but note that
+latency is only comparable *within* one run, never between two of them. The runner's fast
+stages were executed end to end and reproduce the committed artifacts exactly - all three
+sweep grids and the fallback per-resume rows match - so `.\run_study.ps1` is a verified path,
+not an untested script. The equivalent commands:
 
 ```
-python evaluate.py --embedder tfidf --out results.csv --dump per_resume.csv
-python evaluate.py --embedder dense --out results_dense.csv --dump per_resume_dense.csv
-python evaluate.py --fallback --embedder tfidf --variant "Retrieval-only (no LLM)" --out results_fallback_floor024.csv
-python sweep_floor.py --embedder tfidf --min-sim 0.08   # -> sweep_tfidf.log, no LLM
-python sweep_floor.py --embedder dense --min-sim 0.45   # -> sweep_dense.log, no LLM
-python bias_audit.py --limit 6 --embedder tfidf --model "Q4_K_M (4-bit)" --out bias_q4.csv
+python evaluate.py --embedder tfidf --out results_v2.csv --dump per_resume_v2.csv
+python evaluate.py --embedder tfidf --out results_v2_repeat.csv --dump per_resume_v2_repeat.csv
+python evaluate.py --embedder dense --out results_v2_dense.csv --dump per_resume_v2_dense.csv
+python evaluate.py --fallback --embedder tfidf --variant "Retrieval-only (no LLM)" --out results_v2_fallback.csv
+python sweep_floor.py --embedder tfidf --min-sim 0.08   # -> sweep_tfidf_v2.log, no LLM
+python sweep_floor.py --embedder dense --min-sim 0.50   # -> sweep_dense_v2.log, no LLM
+python sweep_floor.py --embedder dense --min-sim 0.30   # -> sweep_dense_fine_v2.log, the peak grid
+python bias_audit.py --limit 6 --embedder tfidf --floor 0.024 --model "Q4_K_M (4-bit)" --out bias_q4.csv
 python bias_audit.py --limit 6 --embedder tfidf --out bias_retrieval_only_control.csv
 ```
 
 ### RAG vs full context, same model
 
-TF-IDF retrieval, floor 0.024 (`results.csv`):
+TF-IDF retrieval, floor 0.024, on the corrected corpus (`results_v2.csv`, reproduced
+byte-for-byte by `results_v2_repeat.csv`):
 
 | mode | Spearman | Kendall | MAE | within ±10 | latency | tok/s | prompt words |
 |---|---|---|---|---|---|---|---|
-| rag | **0.753** | 0.629 | 23.9 | 0.333 | **13.9 s** | 9.6 | **172** |
-| full | 0.262 | 0.225 | 30.5 | 0.273 | 21.9 s | 8.6 | 304 |
+| rag | **0.753** | 0.629 | 23.9 | 0.333 | **13.3 s** | 10.0 | **172** |
+| full | *undefined* | *undefined* | 31.2 | 0.273 | 20.1 s | 9.5 | 304 |
+
+The full-context row has no correlation because it has no rank: all 33 candidates score 85.
+`evaluate.py` returns NaN rather than a tie-swollen number, which is the honest reading of
+that baseline - not "full context ranks badly" but "full context does not rank". Its MAE is
+still quotable (31.2 vs 23.9).
 
 - **Efficiency claim holds**: the RAG prompt is 43.4% shorter than the full-resume prompt
   and is shorter on 30 of 33 resumes (median 177 vs 297 words). Per-candidate latency
-  drops 36.7% and throughput rises 11.6% (9.6 vs 8.6 tok/s), at the same model load time
-  (2.03 s) and effectively the same memory (2,074 vs 2,110 MB peak RSS).
-- **The efficiency half is embedder-independent.** The dense run reproduces it: 304 -> 178
-  words (+41.5%), RAG shorter on the same 30 of 33 resumes, and the same two full-context
-  scores for all 33 candidates. What the embedder changes is the *quality* column, not the
-  compression (see the TF-IDF-vs-dense section).
+  drops 33.6% and throughput rises 5.3% (10.0 vs 9.5 tok/s), at the same model load time
+  (1.71 s) and effectively the same memory (2,079 vs 2,119 MB peak RSS).
+- **The efficiency half is embedder-independent.** The dense run reproduces it on the same
+  corpus: 304 -> 178 words (-41.5%), RAG shorter on the same 30 of 33 resumes, the same two
+  prompt medians (177 vs 297), and one full-context score of 85 for all 33 candidates in
+  both embedders - as it must be, since `full` mode never reads retrieval. What the embedder
+  changes is the *quality* column, not the compression (see the TF-IDF-vs-dense section).
 - **Where it does not hold**: the 3 resumes where RAG is longer are exactly the 3 under
-  90 words (`per_resume.csv`: 39, 56 and 85 words), each by a constant 21 words - that is
+  90 words (`per_resume_v2.csv`: 39, 56 and 85 words), each by a constant 21 words - that is
   the requirement-to-passage mapping, and when a resume already fits in one chunk there is
   nothing left for retrieval to compress. Below ~100 words the baseline is the cheaper
   prompt, so the honest claim is "RAG compresses any resume with more than one chunk",
   not "RAG always compresses".
 - **Quality does not pay for that saving - it comes with it.** RAG separates candidates in
   ways that track the rubric (rho 0.753), while full context barely varies its answer at
-  all (see the degeneracy note below - 32 of 33 candidates get the same number).
+  all (see the degeneracy note below - on the corrected corpus all 33 candidates get the
+  same number).
   Restricting the model to the passages that actually answer each requirement beats letting
   it read everything.
 - MAE of ~24 points is still poor in absolute terms, and the +/-10-point hit rate is only
@@ -205,34 +251,47 @@ TF-IDF retrieval, floor 0.024 (`results.csv`):
 ### TF-IDF vs dense retrieval, same model and same budget
 
 `all-MiniLM-L6-v2` at its own swept floor (0.24) against TF-IDF at 0.024, same GGUF, same
-33 resumes, same 6 requirements, `temperature=0` (`results.csv` vs `results_dense.csv`):
+33 corrected resumes, same 6 requirements, `temperature=0` (`results_v2.csv` vs
+`results_v2_dense.csv`):
 
-| embedder | Spearman | Kendall | MAE | within ±10 | signed score offset | mean abs gap to own coverage | latency | prompt words | peak RSS |
-|---|---|---|---|---|---|---|---|---|---|
-| tfidf (floor 0.024) | **0.753** | 0.629 | 23.9 | 0.333 | **-22.0** | 30.8 | **13.9 s** | **172** | **2,074 MB** |
-| dense (floor 0.24) | 0.668 | 0.568 | **16.6** | **0.394** | +6.2 | **9.5** | 16.2 s | 178 | 2,463 MB |
+| embedder | Spearman | Kendall | MAE | within ±10 | signed score offset | mean abs gap to own coverage | prompt words | peak RSS |
+|---|---|---|---|---|---|---|---|---|
+| tfidf (floor 0.024) | **0.753** | 0.629 | 23.9 | 0.333 | **-22.0** | 30.3 | **172** | **2,079 MB** |
+| dense (floor 0.24) | 0.670 | 0.576 | **16.6** | **0.394** | +6.1 | **9.9** | 178 | 2,463 MB |
+
+Latency is deliberately **not** a column here. The two runs are separate processes on a
+shared CPU and are not comparable: dense is 12.6 s per candidate and tfidf 13.3 s this time,
+whereas the pre-correction pair read 16.2 s and 13.9 s - every one of the 33 dense candidates
+got 1.1-9.8 s faster on the corrected corpus while its output length barely moved (mean 90.8
+-> 88.1 words), so that swing is host state, not content. The comparison that *is* valid is
+within a process, and it repeats for both embedders: RAG 13.3 vs full 20.1 s (tfidf), RAG
+12.6 vs full 20.0 s (dense) - a 34-37% latency saving either way. Peak RSS is comparable
+across runs because it is dominated by the weights, and there the dense embedder does cost
+what was claimed: 2,463 vs 2,079 MB (+18.5%).
 
 - **The ranking difference is not resolvable at n = 33.** 0.753 has a 95% Fisher-z interval
-  of [0.553, 0.871] and 0.668 of [0.421, 0.823]; they overlap almost completely, so the
+  of [0.553, 0.871] and 0.670 of [0.424, 0.824]; they overlap almost completely, so the
   defensible sentence is "TF-IDF + floor ranked at least as well as dense here", not
   "TF-IDF is better". That is a slightly awkward result for a project whose title says
   *retrieval-augmented*, because the cheap, dependency-free embedder won the headline metric.
+  Both figures also survived the corpus correction essentially untouched (0.668 -> 0.670,
+  16.58 -> 16.55 MAE), so the comparison is not an artifact of the defective text.
 - **What is not noise is the scale.** Dense moves the model from systematically harsh
-  (mean score 36.5 against labels averaging 58.5) to near-centred (64.7), which is where
+  (mean score 36.5 against labels averaging 58.5) to near-centred (64.5), which is where
   the MAE 23.9 -> 16.6 and hit-rate 0.333 -> 0.394 gains come from - not from a better
   ordering. The two score vectors disagree substantially: Spearman between the TF-IDF and
   dense RAG scores is only **0.462**, 15 of 33 candidates sit 30+ points apart (mean |delta|
-  between the two runs is **29.7 points**), and the 23 candidates TF-IDF put below 40 split
-  8/15 across the dense bands. For scale: swapping embedders moves a candidate's score about
-  twice as much as the entire fairness audit's identity edits did (mean 13.6 points), so the
-  choice of embedder is this pipeline's largest measured lever - larger than anything the
-  prompt does.
+  between the two runs is **29.5 points**), and of the 23 candidates TF-IDF puts below 40,
+  dense puts 12 on 80 and 3 on 85. For scale: swapping embedders moves a candidate's score
+  about twice as much as the entire fairness audit's identity edits did (mean 13.4 points),
+  so the choice of embedder is this pipeline's largest measured lever - larger than anything
+  the prompt does.
 - **Dense retrieval is internally more consistent.** The model's number vs the coverage
-  implied by its own `matched` list differs by 30.8 MAE under TF-IDF and 9.5 under dense,
+  implied by its own `matched` list differs by 30.3 MAE under TF-IDF and 9.9 under dense,
   and only 4 of 33 candidates diverge by more than 30 points (15 under TF-IDF). The dense
-  floor is gentler on evidence (21.2% of requirements come back empty vs 51.5% for TF-IDF,
+  floor is gentler on evidence (20.7% of requirements come back empty vs 51.5% for TF-IDF,
   1.09 vs 1.03 surviving passages per candidate), so the model is handed a set it can
-  actually stand behind - at 17% more wall time and 19% more memory.
+  actually stand behind - and pays for it in memory, not in ranking quality.
 - Both runs are single-passage retrieval, and both flag degenerate: dense mode puts 19 of 33
   candidates on 80 (modal share 0.576), TF-IDF puts 20 of 33 on 20 (0.606). Same ceiling,
   different ceiling value.
@@ -243,16 +302,19 @@ TF-IDF retrieval, floor 0.024 (`results.csv`):
 
 ### Both modes score degenerately - read the rho as band agreement
 
-Before comparing the two rho values, look at what the model actually emits (`per_resume.csv`):
+Before comparing the two rho values, look at what the model actually emits (`per_resume_v2.csv`):
 
 | run | distinct scores | distribution | modal share |
 |---|---|---|---|
 | rag, tfidf | 5 of 33 candidates' worth of resolution | 20 (x20), 80 (x7), 85 (x2), 0 (x3), 75 (x1) | 0.61 |
-| rag, dense | 5 | 80 (x19), 85 (x6), 20 (x4), 0 (x3), 25 (x1) | 0.58 |
-| full (either embedder) | **2** | 85 (x32), 60 (x1) | 0.97 |
+| rag, dense | 4 | 80 (x19), 85 (x6), 20 (x5), 0 (x3) | 0.58 |
+| full (either embedder) | **1** | 85 (x33) | **1.00** |
 
-In full-context mode the model gives 32 of 33 candidates exactly 85 - it cannot rank at
-all, and its rho of 0.262 is carried by the single candidate it scored differently. So the
+In full-context mode the corrected corpus leaves the model with a single answer for all 33
+candidates - it cannot rank at all, and `evaluate.py` reports Spearman and Kendall as
+`undefined` rather than a number. (Pre-correction it emitted two values and its 0.262 rho was
+carried entirely by the one candidate, `r12_weak.txt`, that scored 60; fixing a reversed date
+range in that CV removed the last trace of a rank. See "Run-to-run determinism".) So the
 defensible sentence is not "RAG beats full context 0.753 vs 0.262"; it is **"RAG separates
 candidates into bands that track the rubric, while full context collapses to a constant."**
 `evaluate.py` now flags any row whose modal score covers more than half the corpus instead
@@ -266,21 +328,21 @@ shortlist tiers, and the tie handling stated: scipy `spearmanr` ranks ties by av
 the Kendall figures are tau-b, which discounts tied pairs.
 
 
-`results.csv` reports each variant twice: `spearman` is the LLM's own 0-100 guess,
+`results_v2.csv` reports each variant twice: `spearman` is the LLM's own 0-100 guess,
 `cov_spearman` is a deterministic score computed from what retrieval actually found
 (weighted count of requirements with surviving evidence, `screen_resume` in
 `rag/screen.py`). That second column exists because the two disagree more often than they
-agree: in `per_resume.csv`, the model's guess and its own matched list differ by more than
+agree: in `per_resume_v2.csv`, the model's guess and its own matched list differ by more than
 30 points on **15 of 33** resumes (max 63, they coincide exactly on 3) - and every single
 one of those 15 has the model scoring *below* what its own citations support. The dense run
-diverges on only 4 of 33 (max gap to coverage 9.5 MAE), so the self-contradiction is a
+diverges on only 4 of 33 (mean gap to coverage 9.9 MAE), so the self-contradiction is a
 property of what retrieval hands the model, not of the model alone.
 
 | mode | LLM score rho / MAE | coverage rho / MAE |
 |---|---|---|
-| rag, tfidf | 0.753 / 23.9 | 0.501 / 22.8 |
-| rag, dense | 0.668 / 16.6 | 0.566 / 23.1 |
-| full (either embedder) | 0.262 / 30.5 | -0.177 / 53.6 |
+| rag, tfidf | 0.753 / 23.9 | 0.554 / 22.3 |
+| rag, dense | 0.670 / 16.6 | 0.535 / 22.6 |
+| full (either embedder) | undefined (one score) / 31.2 | -0.267 / 57.3 |
 
 So the LLM wins on ranking and roughly ties on absolute error - it is a better sorter than
 a better scorer. Note that this comparison is **not** an independent validation of
@@ -291,8 +353,8 @@ coverage usefully exposes is the scale problem, which is a constant offset per m
 | mode | mean human | mean LLM score | mean signed gap | error quartiles | MAE raw -> after removing the offset |
 |---|---|---|---|---|---|
 | rag, tfidf | 58.5 | 36.5 | -22.0 | -47 / -14 / -2 | 23.9 -> 19.7 |
-| rag, dense | 58.5 | 64.7 | +6.2 | -10 / +3 / +13 | 16.6 -> 16.6 |
-| full | 58.5 | 84.2 | +25.8 | | 30.5 -> 25.1 |
+| rag, dense | 58.5 | 64.5 | +6.1 | -10 / -2 / +13 | 16.6 -> 16.7 |
+| full | 58.5 | 85.0 | +26.5 | -4 / +18 / +63 | 31.2 -> 26.0 |
 
 With retrieved evidence under TF-IDF the model is systematically harsh (25 of 33 candidates
 scored below what their own citations support, 5 above); with the whole resume it is
@@ -300,40 +362,63 @@ systematically lenient. The offset is not stable across prompt strategy - it fli
 is worth ~26 points of MAE - so neither mode is calibrated, which is exactly why the tool
 should report ranks and citations rather than a number to hand to a candidate. The
 embedders separate *why* the error is what it is: TF-IDF's error distribution is one-sided
-(all four quartiles at or below zero), so most of its 23.9 MAE is a constant harshness that
-recalibration would remove, while dense's straddles zero (+6.2 offset, MAE unchanged by
-removing it), so its 16.6 is residual disagreement per candidate, not a scale bug. The
+(all quartiles at or below zero), so most of its 23.9 MAE is a constant harshness that
+recalibration would remove (19.7 once the -22.0 offset is centred), while dense's straddles
+zero and centring it makes the error very slightly *worse* (16.6 -> 16.7). That is the
+sharpest statement of the embedder trade in this study: dense's 16.6 is not a scale bug
+waiting for a recalibration, it is irreducible per-candidate disagreement, so its apparent
+MAE advantage over TF-IDF cannot be closed by a post-hoc offset the way TF-IDF's can. The
 other thing coverage exposes is in the first table: in full mode the coverage heuristic
-correlates *negatively* with the labels (-0.177), because when every requirement can be
+correlates *negatively* with the labels (-0.267), because when every requirement can be
 matched against the entire document, "has a passage about X" stops discriminating. Read
 together with the floor ablation below: retrieval does most of the ranking work, and the
-LLM's judgement is what lifts evidenced-coverage agreement (0.501) to 0.753.
+LLM's judgement is what lifts evidenced-coverage agreement (0.554) to 0.753.
 
 
 ### Run-to-run determinism
 
-Greedy decoding (`temperature=0`) makes the scoring path reproducible, and two things were
-checked with the artifacts that exist rather than assumed:
+Greedy decoding (`temperature=0`) makes the scoring path reproducible, and the headline is
+now backed by the reproduction rather than by an argument:
 
-- **Two independent processes at floor 0.03** (`results_q4_tfidf.csv` and
-  `results_floor030.csv`) produced byte-identical quality figures: rho 0.560 / 0.262, tau
-  0.474 / 0.225, MAE 27.76 / 30.48, within-10 0.364 / 0.273, 172 / 304 prompt words, rag
-  peak RSS 2,074 MB. Only the timings moved: 13.72 -> 13.93 s (rag), 22.43 -> 22.83 s (full),
-  i.e. ~1.5-3% CPU noise.
-- **Full-context mode reproduced across four runs**, including across both embedders:
-  `per_resume.csv` (tfidf) and `per_resume_dense.csv` (dense) give the same score for all 33
-  candidates in `full` mode (verified by list equality), and rho 0.262 / MAE 30.48 in every
-  run made after the parsing fixes - the older `results_tfidf_q4.csv` gives 0.084 there
-  because it predates them, which is itself evidence the fix changed a real behaviour.
-  That is expected - full mode never touches retrieval - but it is the cleanest
-  determinism evidence in the project because it holds across a changed dependency, not just
-  a re-run.
+- **Two independent processes at floor 0.024 on the corrected corpus**
+  (`results_v2.csv`, `results_v2_repeat.csv`) agree on all 33 RAG scores, all 33
+  full-context scores and every `matched` list, so every quality figure repeats exactly:
+  rho 0.753 / undefined, tau 0.629, MAE 23.91 / 31.24, within-10 0.333 / 0.273,
+  cov-rho 0.554 / −0.267, 172 / 304 prompt words, rag peak RSS 2,079 MB. Only the timings
+  moved: 13.33 -> 12.85 s (rag), 20.06 -> 19.20 s (full), i.e. ~4% CPU noise, with tok/s
+  10.0 -> 10.3 and model load 1.71 -> 1.85 s.
+- **Earlier, two independent processes at floor 0.03** (`results_q4_tfidf.csv` and
+  `results_floor030.csv`) gave the same byte-identical quality figures on the
+  pre-correction corpus (rho 0.560 / 0.262, MAE 27.76 / 30.48), so determinism holds across
+  both floors, not only at the one being quoted.
+- **Full-context mode reproduces across embedders**, as it must: it never touches retrieval.
+  On the corrected corpus, `per_resume_v2.csv` and `per_resume_v2_dense.csv` give the same
+  score (85) for all 33 candidates in `full` mode, and the two runs' `full` rows agree on
+  every quality figure - MAE 31.24, within-10 0.273, cov-rho -0.267, cov-MAE 57.27, 304 prompt
+  words. Pre-correction the same held (`per_resume.csv` vs `per_resume_dense.csv`).
+- **The dense run is a third, independent process** and lands where the pre-correction dense
+  run landed (0.668 -> 0.670 rho, 16.58 -> 16.55 MAE) after exactly one score moved, so the
+  embedder comparison does not rest on a single lucky process.
 
-**What is NOT reproduced: the headline 0.753.** `results.csv` is a byte-identical copy of
-`results_floor024.csv` (same md5), i.e. one process, and no second floor-0.024 LLM run was
-made. The 0.753 figure rests on a single run, mitigated but not settled by the two
-reproductions above. `python evaluate.py --embedder tfidf --out results_repeat.csv` is the
-command that would close it (~20 min of CPU; left unrun deliberately).
+**Latency is only comparable inside one process.** The tfidf pair above moved 13.33 -> 12.85 s
+between two runs of the *same* configuration on the *same* corpus, and the dense RAG mean moved
+16.19 -> 12.64 s between corpora while all 33 candidates got faster (1.1-9.8 s each) with mean
+output length essentially flat (90.8 -> 88.1 words). Nothing about the corrected text makes a
+token faster; that is host CPU state. So within-run deltas are quotable (tfidf 13.3 vs 20.1 s,
+dense 12.6 vs 20.0 s) and cross-run ones are not (12.6 s dense vs 13.3 s tfidf must not be read
+as "dense is quicker"). Peak RSS behaves differently - 2,079 / 2,119 / 2,463 MB is stable enough
+across processes to compare, because it is dominated by the loaded weights.
+
+**The corpus correction was measurable, and almost entirely cosmetic.** Regenerating the
+dataset changed 12 `Experience:` date strings in 10 files. Re-measuring on it changed **zero of
+33 TF-IDF RAG scores**, zero prompt lengths and zero retrieved passages, with one candidate's
+`matched` count moving from 5 to 4 (`r13_weak.txt`); under dense the same correction moved
+exactly **one of 33** scores, `r13_weak.txt` again, 25 -> 20. The one real effect is the
+cautionary tale: in full-context mode the single candidate that had *not* scored 85
+pre-correction was `r12_weak.txt` at 60, and `r12_weak.txt` is one of the ten files whose text
+changed. After the fix all 33 land on 85 - in both embedders - which is the baseline's only
+rank signal, destroyed by editing a two-character date range in one CV. That is the same
+knife-edge instability the fairness audit measured, observed from the other direction.
 
 Consequence for the fairness section: because the scoring path is deterministic, the
 60-point swings there are *input* sensitivity, not sampling noise - which is exactly why the
@@ -346,14 +431,14 @@ placebo control was needed to say anything about what the input was.
 requirement always came back with "evidence" - including for a hospitality CV that has no
 data skills at all. Two artifact-backed views of the same pathology:
 
-- **Structurally** (`sweep_tfidf.log`, first row): at floor 0.000 every one of the 33 resumes
-  returns evidence for all 6 requirements - weak candidates 6.00, strong candidates 6.00,
-  separation exactly 0.00, and 0% of requirements reported as unevidenced. Retrieval simply
-  cannot express "this candidate has nothing to say about that".
-- **At the model** (`per_resume.csv`, `full` mode - which hands the LLM the entire resume and
-  is the same failure in prompt form): the hospitality CV gets **85/100 with 5 of 6
-  requirements marked matched**, and is indistinguishable from the strong candidate, who gets
-  85 with the same 5 matched.
+- **Structurally** (`sweep_tfidf_v2.log`, first row): at floor 0.000 every one of the 33
+  resumes returns evidence for all 6 requirements - weak candidates 6.00, strong candidates
+  6.00, separation exactly 0.00, and 0% of requirements reported as unevidenced. Retrieval
+  simply cannot express "this candidate has nothing to say about that".
+- **At the model** (`per_resume_v2.csv`, `full` mode - which hands the LLM the entire resume
+  and is the same failure in prompt form): all three hand-written CVs get **85/100 with the
+  same 5 of 6 requirements matched**, so the hospitality CV (label 10) is not merely
+  over-scored, it is byte-identical in output to the strong CV (label 90).
 
 | candidate (human label) | rag, floor 0.024 | full context |
 |---|---|---|
@@ -363,14 +448,14 @@ data skills at all. Two artifact-backed views of the same pathology:
 
 Corpus-wide, the floor moves RAG-mode Spearman from **-0.083** (no floor,
 `results_tfidf_q4.csv`) to **0.560** (floor 0.03, `results_floor030.csv`) to **0.753** (floor
-0.024, `results.csv`). Negative correlation is worse than random, and it is the *efficiency*
+0.024, `results_v2.csv`). Negative correlation is worse than random, and it is the *efficiency*
 path that caused it: a top-k-per-requirement budget guarantees retrieving noise when a
 candidate lacks a skill, and the model faithfully reports the noise as proof. The floor costs
 some true evidence (the strong candidate keeps 5 of 6 either way, but the corpus loses half
 its evidenced requirements) and no input tokens (median 178 -> 177 words), but it does cost
-output time: 11.4 -> 13.9 s per candidate, because a candidate with empty evidence sets makes
-the model spend tokens listing what is missing. It is still comfortably cheaper than the 21.9
-s full-context baseline, so the honest framing is "the floor buys the ranking and pays ~2.5 s
+output time: 11.4 -> 13.3 s per candidate, because a candidate with empty evidence sets makes
+the model spend tokens listing what is missing. It is still comfortably cheaper than the 20.1
+s full-context baseline, so the honest framing is "the floor buys the ranking and pays ~2 s
 per candidate", not "the floor is free". "No supporting passage" is now a legitimate retrieval
 result and is reported as such; it is what turns `missing` from a guess into something the
 pipeline observed.
@@ -384,15 +469,15 @@ verifiable views above.
 
 Retrieval-only sweep over all 33 resumes x 6 requirements, no LLM involved, from
 `sweep_floor.py` - figures are mean requirements that return at least one surviving passage.
-The two grids below are the exact output of `sweep_tfidf.log` and `sweep_dense.log`, so the
-chosen value is the row marked `*` in each.
+The two grids below are the exact output of `sweep_tfidf_v2.log` and `sweep_dense_fine_v2.log`
+on the corrected corpus, so the chosen value is the row marked `*` in each.
 
 **TF-IDF** (`python sweep_floor.py --embedder tfidf --min-sim 0.08`):
 
 | floor | weak (<40) | medium (40-74) | strong (>=75) | strong-weak | passages/resume | requirements with NO evidence |
 |---|---|---|---|---|---|---|
 | 0.000 | 6.00 | 6.00 | 6.00 | 0.00 | 1.12 | 0.0% |
-| 0.008 | 3.82 | 5.33 | 5.60 | 1.78 | 1.12 | 18.2% |
+| 0.008 | 3.91 | 5.33 | 5.60 | 1.69 | 1.12 | 17.7% |
 | 0.016 | 2.00 | 3.67 | 4.50 | 2.50 | 1.06 | 43.9% |
 | **0.024** | 1.55 | 3.00 | 4.30 | **2.75** | 1.03 | 51.5% |
 | 0.032 | 1.36 | 2.33 | 3.30 | 1.94 | 1.03 | 61.6% |
@@ -403,42 +488,55 @@ chosen value is the row marked `*` in each.
 | 0.072 | 0.36 | 1.00 | 0.80 | 0.44 | 0.58 | 87.9% |
 | 0.080 | 0.18 | 0.83 | 0.70 | 0.52 | 0.52 | 90.4% |
 
-**Dense, `all-MiniLM-L6-v2`** (`python sweep_floor.py --embedder dense --min-sim 0.45`):
+**Dense, `all-MiniLM-L6-v2`** (`python sweep_floor.py --embedder dense --min-sim 0.30`,
+fine grid around the peak; `sweep_dense_v2.log` is the same corpus at 0.050 steps):
 
 | floor | weak | medium | strong | strong-weak | passages/resume | NO evidence |
 |---|---|---|---|---|---|---|
 | 0.000 | 5.91 | 6.00 | 6.00 | 0.09 | 1.12 | 0.5% |
-| 0.135 | 5.82 | 5.92 | 6.00 | 0.18 | 1.12 | 1.5% |
+| 0.030 | 5.91 | 6.00 | 6.00 | 0.09 | 1.12 | 0.5% |
+| 0.060 | 5.91 | 6.00 | 6.00 | 0.09 | 1.12 | 0.5% |
+| 0.090 | 5.91 | 6.00 | 6.00 | 0.09 | 1.12 | 0.5% |
+| 0.120 | 5.82 | 5.92 | 6.00 | 0.18 | 1.12 | 1.5% |
+| 0.150 | 5.55 | 5.92 | 6.00 | 0.45 | 1.12 | 3.0% |
 | 0.180 | 4.64 | 5.92 | 5.90 | 1.26 | 1.09 | 8.6% |
-| 0.225 | 3.64 | 5.75 | 5.70 | 2.06 | 1.09 | 16.2% |
-| **0.240** | 3.09 | 5.67 | 5.40 | **2.31** | 1.09 | 21.2% |
-| 0.270 | 2.36 | 4.33 | 4.60 | 2.24 | 1.09 | 37.4% |
-| 0.315 | 1.64 | 3.33 | 3.70 | 2.06 | 1.06 | 52.0% |
-| 0.360 | 1.09 | 2.33 | 2.80 | 1.71 | 1.06 | 65.7% |
-| 0.405 | 0.73 | 1.50 | 1.40 | 0.67 | 0.88 | 79.8% |
-| 0.450 | 0.45 | 0.75 | 0.80 | 0.35 | 0.58 | 88.9% |
+| 0.210 | 4.00 | 5.75 | 5.70 | 1.70 | 1.09 | 14.1% |
+| **0.240** | 3.18 | 5.67 | 5.40 | 2.22 | 1.09 | 20.7% |
+| 0.270 | 2.36 | 4.33 | 4.70 | 2.34 | 1.09 | 36.9% |
+| 0.300 | 1.91 | 3.67 | 3.90 | 1.99 | 1.06 | 47.5% |
 
 Four things these grids settle:
 
 - **At floor 0.000 the tier separation is 0.00 (TF-IDF) / 0.09 (dense)** - top-k never says
   "nothing", so the signal "this candidate lacks the skill" is structurally unavailable to
   the model. This is why the un-floored run correlated *negatively*.
-- **The scales are ~10x apart and not interchangeable.** The dense peak sits at 0.240, ten
-  times the TF-IDF value; running the TF-IDF floor against dense embeddings would filter
-  essentially nothing (gap 0.09), and running 0.24 against TF-IDF would leave almost no
-  candidate with evidence at all. `SIM_FLOOR` is a dict for exactly this reason.
+- **The scales are ~10x apart and not interchangeable.** The dense plateau runs from 0.24 to
+  about 0.27, roughly ten times the TF-IDF value; running the TF-IDF floor against dense
+  embeddings would filter essentially nothing (gap 0.09), and running 0.24 against TF-IDF
+  would leave almost no candidate with evidence at all. `SIM_FLOOR` is a dict for exactly
+  this reason.
 - **Past the peak the filter turns on the good candidates.** By 0.048 TF-IDF gives a strong
-  candidate 1.50 evidenced requirements against a weak candidate's 1.00, and by 0.405 dense
-  gives 1.40 against 0.73 - separation collapses to noise.
-- **Dense separates tiers less sharply at its own peak** (2.31 vs 2.75 requirements) while
-  leaving far fewer requirements empty (21.2% vs 51.5%). That is the retrieval-side
+  candidate 1.50 evidenced requirements against a weak candidate's 1.00, and in the 0.050-step
+  run (`sweep_dense_v2.log`) dense gives 1.70 at 0.400 and 0.20 at 0.500 against weak's 0.73
+  and 0.18 - separation collapses to noise.
+- **Dense separates tiers less sharply at its own peak** (2.2-2.3 vs 2.75 requirements) while
+  leaving far fewer requirements empty (20.7% vs 51.5%). That is the retrieval-side
   explanation for the eval result above: TF-IDF + floor ranks better because it is willing
   to say "no evidence" about half the requirements, dense ranks worse and scores closer
   because it keeps asserting evidence.
 
+**Why the dense floor stays at 0.240 when 0.250 scores a wider gap.** On the corrected corpus
+the coarse grid's argmax is 0.250 (gap 2.40) rather than 0.240 (gap 2.22) - but that 0.18
+difference is *two* requirement-match decisions out of the 198 pairs the grid counts (weak
+tier: 11 resumes x 3.18 = 35 evidenced matches at 0.240 vs 33 at 0.250; strong tier is
+unchanged at 54 either way). Re-tuning to a 2-pair swing would be fitting the threshold to
+the noise in one 33-resume sample, and it would invalidate the `SIM_FLOOR` values the
+committed `results*.csv` were produced with. 0.240 is kept, and the honest description of the
+dense peak is "flat from 0.24 to 0.27", not "at 0.25".
+
 The cost is worth stating plainly: dedup plus the floor leaves **about one passage** per
-candidate (`per_resume.csv`: mean 1.03, median 1.0, and 2 candidates with none at all;
-dense: mean 1.09, 1 candidate with none).
+candidate (`per_resume_v2.csv`: mean 1.03, median 1.0, and 2 candidates with none at all;
+dense, `per_resume_v2_dense.csv`: mean 1.09, median 1.0, 1 candidate with none).
 This is single-passage retrieval, not multi-passage aggregation - the 43% prompt
 compression is partly a consequence of that narrowness, and a resume that proves one skill
 across three sections still shows the model only one of them. The 2 zero-passage candidates
@@ -449,8 +547,9 @@ model gives them 0/100, and that is the behaviour a floor is supposed to produce
 ### No-LLM baseline
 
 Retrieval-only scoring (no generation at all) reaches rho **0.306** / tau 0.249 / MAE 54.5 /
-within-10 0.061 on the same 33 resumes (`results_fallback_floor024.csv`), so the quantized
-LLM contributes real ranking value (0.306 -> 0.753 with TF-IDF, -> 0.668 with dense).
+within-10 0.061 on the same 33 resumes (`results_v2_fallback.csv`, and to the last decimal on
+the pre-correction corpus in `results_fallback_floor024.csv`), so the quantized
+LLM contributes real ranking value (0.306 -> 0.753 with TF-IDF, -> 0.670 with dense).
 
 One caveat that changes how to read that gap: **the baseline does not respond to the floor
 below its own anchor.** Re-running it at floors 0.000 / 0.024 / 0.030 / 0.050 gives the
@@ -471,6 +570,9 @@ scored again with one line added back - a name, a university, a career gap, a
 gender/age/marital line, or a **placebo** line that carries no identity at all
 ("References available on request.", "Document ID: 4471-B (internal tracking).",
 "Availability: immediate, open to relocation."). 108 comparisons, signed deltas, `bias_q4.csv`.
+The audit needed no re-run after the dataset correction, and that is checkable rather than
+asserted: `--limit 6` takes the first six resumes in sorted order (`medium_candidate.txt`,
+`r01_weak.txt`-`r05_strong.txt`) and none of them is among the ten files whose text changed.
 
 | factor | comparisons | mean abs change | median | max | flagged (>10) | >=30 pts | changed at all |
 |---|---|---|---|---|---|---|---|
@@ -534,32 +636,41 @@ be compared against "the score moves by this much anyway".
   quantization-efficiency curve; those variants are skipped rather than faked. The title's
   "quantized LLM" half is therefore a single point on the size/accuracy curve, not a curve.
 - Both embedders were measured (TF-IDF and `all-MiniLM-L6-v2`), each at its own swept floor,
-  but **each only once**: the dense run is a single process, and the TF-IDF headline (0.753)
-  is a single process too (see the determinism section). The 0.753-vs-0.668 ordering between
-  embedders is inside the noise at n = 33 and should not be claimed either way.
+  on the corrected corpus. The **TF-IDF headline is two independent processes that agree
+  exactly** (`results_v2` and `results_v2_repeat`, all 33 scores and matched-lists identical).
+  The dense side is **one process per corpus** - `results_dense.csv` (0.668) and
+  `results_v2_dense.csv` (0.670) are separate runs, but on *different* text, so they agree
+  without being a replicate in the strict sense. A dense run has yet to be repeated twice on
+  one corpus. Either way the 0.753-vs-0.670 ordering sits inside the noise at n = 33 and
+  should not be claimed in either direction.
 - Labels are synthetic and rubric-derived, so agreement measures whether the pipeline
   reproduces a stated rubric, not real hiring judgement. n = 33 is small; rho 0.753 has a
-  95% Fisher-z interval of [0.553, 0.871] and the dense run's 0.668 of [0.421, 0.823], while
-  full context's 0.262 sits below both intervals. The RAG-vs-full gap is the one comparison
-  here that survives its own confidence interval; the embedder comparison does not.
-- The shipped dataset has a cosmetic text defect that is **not** in the generator any
-  more: 10 of the 30 generated resumes carry an experience range that runs backwards
-  (`Experience: BI Analyst (fintech, 2023-2022)`), because the graduation-year clamp could
-  return a start later than its own end once the role cursor stepped below graduation year.
-  `data/generate_dataset.py` now has `role_years()` and
-  `tests/test_pipeline.py::test_role_year_ranges_never_run_backwards` pins it, but the
-  resumes were **not** regenerated: that would change chunk text for 10 of 33 candidates
-  and invalidate every results CSV measured on them, and re-measuring costs ~20 minutes of
-  CPU. `python data/check_dataset.py` states this explicitly (12 FAIL / 3 WARN) and proves
-  the drift is confined to those 12 `Experience:` lines, so the corpus behind the tables is
-  the one labelled "measured on the shipped text" in `ARTIFACTS.md`.
+  95% Fisher-z interval of [0.553, 0.871] and the dense run's 0.670 of [0.424, 0.824].
+  Full context contributes **no interval at all** on the corrected corpus: it scored all 33
+  candidates 85, so Spearman is undefined (its pre-correction 0.262 came from a single
+  dissenting candidate). The RAG-vs-full comparison therefore rests on the degenerate-versus
+  ordered contrast plus MAE (23.9 vs 31.2), not on two overlapping rho intervals; the
+  embedder comparison does not survive its own interval either way.
+- The dataset's text defect is **fixed and re-measured, and the fix was cosmetic** - which is
+  now a measurement rather than an assumption. 10 of the 30 generated resumes had experience
+  ranges running backwards (`Experience: BI Analyst (fintech, 2023-2022)`) because the
+  graduation-year clamp could return a start later than its own end; `role_years()` in
+  `data/generate_dataset.py` clamps to the cursor as well, `tests/test_pipeline.py` pins it,
+  and `python data/check_dataset.py` reports 0 FAIL / 2 WARN with no generator drift.
+  Re-running the study on the corrected corpus changed 0 of 33 TF-IDF RAG scores, 0 prompt
+  lengths and 0 retrieved passages (1 of 33 under dense), and the only effects were one
+  candidate's `matched` count (5 -> 4)
+  and, in full-context mode, the collapse from 2 distinct scores to 1, because the one CV
+  that had not scored 85 was itself one of the ten edited files. Old and new artifacts are
+  both committed so the comparison stays checkable (`results.csv` vs `results_v2.csv`).
 - A second cosmetic finding from the same checker: the two hand-written CVs are 39 and 56
   words, under the 60-word band the evidence budget was sized for. On documents that short
   retrieval has nothing to leave out, so RAG and full context differ only by the prompt
   scaffolding - they are illustrations, not efficient cases.
-- The scorer is coarse: 5 distinct values per mode, 61% of candidates on one value under
-  TF-IDF. Every correlation reported is a correlation between a 5-level score and a
-  0-100 rubric, and `evaluate.py` flags it (`modal_share`).
+- The scorer is coarse: 5 distinct values across 33 candidates in RAG mode (61% on one
+  value), and **1** in full-context mode on the corrected corpus. Every correlation reported
+  is a correlation between a 5-level score and a 0-100 rubric, and `evaluate.py` flags it
+  (`n_distinct_scores`, `modal_share`, and NaN instead of a tie-swollen rho).
 - The fairness audit found no identity effect separable from its placebo, but that is not
   evidence of fairness: the only identity signal it produced came from one candidate
   (n_effective = 1) and the instrument's noise is 20-60 points. The identity question is

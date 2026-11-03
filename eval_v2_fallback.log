@@ -1,0 +1,17 @@
+embedder: tfidf | sim_floor: 0.024 | resumes: 33 | chunks: 111
+[caveat] TF-IDF retrieval, not the dense embedder - the similarity floor in rag/config.py was swept for tfidf only. Dense load error: None
+resume length: min 39 / mean 222 / max 480 words
+skipping (no GGUF in ./models): Q8_0 (8-bit), F16 (baseline)
+
+per-resume detail: 66 rows -> per_resume_v2_fallback.csv
+
+                variant mode embedder  n  spearman  kendall  n_distinct_scores  modal_share   mae  within_10  cov_spearman  cov_mae  cov_within_10  avg_latency_s  avg_tok_per_s  model_load_s  peak_rss_mb  model_size_mb  avg_prompt_words  rag_words_vs_full  median_rag_words  median_full_words
+Retrieval-only (no LLM)  rag    tfidf 33     0.306    0.249                 12        0.303 54.48      0.061         0.385    55.91           0.03            0.0            NaN           0.0        160.0            0.0             172.0              0.566             177.0              297.0
+Retrieval-only (no LLM) full    tfidf 33     0.306    0.249                 12        0.303 54.48      0.061         0.385    55.91           0.03            0.0            NaN           0.0        161.0            0.0             304.0                NaN               NaN                NaN
+
+peak_rss_mb is process-wide: to compare memory across quantization levels, run one variant per process, e.g. evaluate.py --variant 'Q4_K_M (4-bit)'.
+
+Prompt compression (RAG vs full context, mean words):
+  Retrieval-only (no LLM)    304 ->    172 words (+43.4%), RAG shorter on 30/33 resumes
+
+Saved to results_v2_fallback.csv

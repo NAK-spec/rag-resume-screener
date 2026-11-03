@@ -1,0 +1,13 @@
+embedder: tfidf | resumes: 33 | chunks: 111 | requirements: 6
+old path: TOP_K=4, no floor, no dedup, no budget (rag/screen.py at 9d2e10a)
+
+prompt: pre-dedup (old)            mean 1671 words | median 1683 | min  375 | max 2247
+prompt: full-context baseline      mean  304 words | median  297 | min  121 | max  562
+prompt: dedup + floor (current)    mean  172 words | median  177 | min  102 | max  254
+Note: the old prompt also pasted the entire job description, while the current one
+prints only the role line plus the requirement list. So the totals above conflate
+two fixes; the evidence-block figure at the end isolates the dedup and budget.
+
+The old RAG prompt was 1367 words LONGER than the baseline it was meant to compress (1671 vs 304); the current one is 132 shorter (172 vs 304).
+
+Evidence block only, mean pasted words per resume: old 1517 vs current 69, against a mean document of 222 words. The old path reproduced 6.9x the document in evidence text; the current path carries 0.37x, capped by the budget.

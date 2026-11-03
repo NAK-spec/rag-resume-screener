@@ -2,16 +2,26 @@
 
 Run with pytest (`pip install pytest`, then `pytest tests -q`) or directly with no
 extra dependency:  python tests/test_pipeline.py
+
+Every test here is TF-IDF-only and loads no GGUF, so the file runs in a couple of
+seconds on a CPU-only laptop. The dense path is covered by
+test_embedder_for_refuses_a_silent_scale_swap, which forces the import to fail
+rather than downloading a model.
 """
+import math
 import re
 import sys
 import tempfile
+from functools import lru_cache
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from evaluate import metric_row, rank_metrics
 from rag import auth
-from rag.index import Embedder, ResumeIndex
+from rag.config import SIM_FLOOR
+from rag.index import Embedder, ResumeIndex, embedder_for
 from rag.ingest import BULLET_RE, chunk_text, clean, extract_text, split_requirements
 from rag.llm import GenResult, RetrievalOnlyLLM
 from rag.screen import (Result, build_prompt, evidence_budget, jd_context,
@@ -197,6 +207,160 @@ def test_normalize_strips_echoed_numbering():
          "[9] out of range", 17], reqs)
     assert got == [reqs[0], reqs[3], "Some free-form skill the model invented",
                    "[9] out of range"], got
+
+
+DATA = Path(__file__).resolve().parent.parent / "data"
+
+
+@lru_cache(maxsize=1)
+def _study_index():
+    """The index exactly as evaluate.py builds it: every committed resume chunk, with the
+    job description in the IDF corpus. Cached because three tests want the same one."""
+    jd = (DATA / "job_description.txt").read_text(encoding="utf-8")
+    resumes = {p.name: clean(extract_text(p.name, p.read_bytes()))
+               for p in sorted((DATA / "resumes").iterdir())}
+    chunks = [c for rid, t in resumes.items() for c in chunk_text(rid, t)]
+    idx = ResumeIndex(Embedder(prefer_dense=False))
+    idx.build(chunks, extra_corpus=[jd])
+    return jd, resumes, idx
+
+
+def test_floor_rejects_the_spurious_evidence_that_broke_rag():
+    """The mechanism the README credits for making RAG usable, pinned to the dataset.
+
+    weak_candidate.txt is the hospitality CV (human label 10). Top-k always returns
+    *some* chunk, so with no floor all six requirements are handed a passage - including
+    "machine learning" at similarity 0.005 - and the scorer is given nothing to reject.
+    At the swept TF-IDF floor one requirement survives. Without this test the floor
+    looks like a free tuning knob; with it, the knob that stopped a label-10 CV being
+    described as a six-for-six match is fixed.
+    """
+    jd, _, index = _study_index()
+    reqs = split_requirements(jd)
+    rid = "weak_candidate.txt"
+    assert len(reqs) == 6, reqs
+
+    def evidenced(floor):
+        return sum(1 for r in reqs if index.search(r, rid, k=3, min_score=floor))
+
+    assert evidenced(0.0) == 6, "unfiltered top-k evidences every requirement"
+    assert evidenced(SIM_FLOOR["tfidf"]) == 1, "only genuine lexical support should survive"
+    ml = next(r for r in reqs if "machine learning" in r)
+    best = max(s for s, _ in index.search(ml, rid, k=3, min_score=0.0))
+    assert 0.0 < best < SIM_FLOOR["tfidf"], (best, SIM_FLOOR["tfidf"])
+
+
+def test_a_requirement_the_floor_rejected_is_never_reported_matched():
+    jd, resumes, index = _study_index()
+    rid = "weak_candidate.txt"
+    r = screen_resume(rid, jd, index, RetrievalOnlyLLM(), mode="rag",
+                      full_text=resumes[rid], top_k=3)
+    unevidenced = [q for q, refs in r.evidence_refs.items() if not refs]
+    assert unevidenced, "most of this CV should come back with no supporting passage"
+    assert not (set(unevidenced) & set(r.matched)), (unevidenced, r.matched)
+    assert set(unevidenced) <= set(r.missing), (unevidenced, r.missing)
+    # the coverage column is the matched list as a percentage, not the model's guess
+    assert r.score_coverage == round(100 * len(r.matched) / len(r.evidence_refs))
+
+
+def test_embedder_for_refuses_a_silent_scale_swap():
+    """The app may fall back quietly; a study run must not.
+
+    A run that meant to be dense and got TF-IDF would score its evidence against 0.24 on
+    a 0.024 scale, which filters almost nothing, and the CSV would still read as a dense
+    row. embedder_for makes that combination raise instead.
+    """
+    assert embedder_for("tfidf").kind == "tfidf"
+    saved = sys.modules.get("sentence_transformers")
+    sys.modules["sentence_transformers"] = None      # blocks the import inside Embedder
+    try:
+        assert Embedder(prefer_dense=True).kind == "tfidf"   # app: silent fallback
+        assert embedder_for("auto").kind == "tfidf"          # auto: silent fallback
+        try:
+            embedder_for("dense")
+        except RuntimeError as e:
+            assert "dense requested" in str(e) and "tfidf was built" in str(e), e
+        else:
+            raise AssertionError("embedder_for('dense') must not downgrade silently")
+    finally:
+        if saved is None:
+            sys.modules.pop("sentence_transformers", None)
+        else:
+            sys.modules["sentence_transformers"] = saved
+
+
+def test_the_two_floors_are_on_different_scales():
+    """README: the floor values are not interchangeable. TF-IDF unit-vector cosine and
+    MiniLM cosine do not share a range, so one global threshold cannot serve both, and
+    copying either value into the other slot is a silent mis-tune rather than an error."""
+    assert set(SIM_FLOOR) == {"tfidf", "dense"}, SIM_FLOOR
+    assert 0 < SIM_FLOOR["tfidf"] < SIM_FLOOR["dense"] < 1
+    assert SIM_FLOOR["dense"] / SIM_FLOOR["tfidf"] >= 5
+
+
+def _metric_row(scores, latencies=None):
+    latencies = latencies or [0.5] * len(scores)
+    results = [SimpleNamespace(resume_id=f"r{i}.txt", score=s, score_coverage=float(s),
+                               latency_s=latencies[i], tok_per_s=12.0,
+                               rss_mb=1500.0, prompt_words=170)
+               for i, s in enumerate(scores)]
+    labels = {f"r{i}.txt": float(10 * (i + 1)) for i in range(len(scores))}
+    return metric_row(RetrievalOnlyLLM(), "Retrieval-only (no LLM)", "rag",
+                      results, labels, "tfidf")
+
+
+def test_a_constant_scorer_has_no_rank():
+    gold = [10.0, 20.0, 30.0, 40.0, 50.0]
+    rho, tau = rank_metrics([85] * 5, gold)
+    assert math.isnan(rho) and math.isnan(tau)
+    assert abs(rank_metrics(gold, gold)[0] - 1.0) < 1e-9
+
+
+def test_degeneracy_is_reported_not_hidden():
+    """32 of 33 candidates on one score is the failure mode this study has to show.
+
+    rho from such a run is still *computable* - it is carried by the one outlier - so the
+    guard is the published modal_share, not a suppressed correlation.
+    """
+    spike = _metric_row([85] * 32 + [20])
+    assert spike["n_distinct_scores"] == 2 and spike["modal_share"] > 0.5
+    assert not math.isnan(spike["spearman"]), "computable is not the same as trustworthy"
+    flat = _metric_row([85] * 33)
+    assert math.isnan(flat["spearman"]) and flat["modal_share"] == 1.0
+    spread = _metric_row(list(range(10, 100, 10)))
+    assert spread["n_distinct_scores"] == 9 and spread["modal_share"] == 0.111
+
+
+def test_retrieval_only_rows_do_not_report_throughput():
+    """A fallback score is produced in microseconds, so tokens/second is a division
+    artefact: an earlier run of the harness published 1.1 million tok/s for rows that
+    never generated anything."""
+    fast = _metric_row([50, 60, 70], latencies=[0.0005, 0.0008, 0.0009])
+    assert math.isnan(fast["avg_tok_per_s"]), fast["avg_tok_per_s"]
+    slow = _metric_row([50, 60, 70], latencies=[1.0, 2.0, 3.0])
+    assert slow["avg_tok_per_s"] == 12.0
+
+
+def test_role_year_ranges_never_run_backwards():
+    """data/generate_dataset.py walks a candidate's roles back from PRESENT. The clamp it
+    used to guard graduation year could return a start later than its own end once the
+    cursor stepped below it, which is how four shipped CVs came to print "2024-2023"."""
+    sys.path.insert(0, str(DATA))
+    try:
+        from generate_dataset import PRESENT, role_years
+    finally:
+        sys.path.pop(0)
+    assert role_years(2023, 2024, 1) == (2023, 2023), "cursor below graduation year"
+    for grad in (2016, 2021, 2024, 2025):
+        for span in (1, 2, 3, 4):
+            cursor, previous_start = PRESENT, None
+            for _ in range(8):
+                start, end = role_years(cursor, grad, span)
+                assert start <= end, (grad, span, cursor, start, end)
+                assert end <= cursor
+                if previous_start is not None:
+                    assert end < previous_start, "roles must not overlap or repeat a year"
+                cursor, previous_start = start - 1, start
 
 
 def main():

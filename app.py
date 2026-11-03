@@ -3,8 +3,8 @@ import pandas as pd
 import streamlit as st
 
 from rag import auth
-from rag.config import MODELS
-from rag.index import Embedder, ResumeIndex
+from rag.config import MODELS, SIM_FLOOR
+from rag.index import ResumeIndex, embedder_for
 from rag.ingest import chunk_text, clean, extract_text
 from rag.llm import RetrievalOnlyLLM, load_llm
 from rag.screen import screen_resume
@@ -60,8 +60,10 @@ def get_llm(variant: str):
 
 
 @st.cache_resource(show_spinner="Loading embedder...")
-def get_embedder():
-    return Embedder()
+def get_embedder(prefer_dense: bool):
+    # embedder_for, not Embedder: a dense load that silently fell back to TF-IDF would
+    # score evidence against the wrong similarity scale and the floor would be mis-tuned.
+    return embedder_for("dense" if prefer_dense else "tfidf")
 
 
 with st.sidebar:
@@ -72,6 +74,10 @@ with st.sidebar:
                     format_func=lambda m: "RAG (retrieved evidence)" if m == "rag"
                     else "Full resume (baseline)")
     top_k = st.slider("Chunks retrieved per requirement", 1, 8, 3)
+    embedder_choice = st.radio(
+        "Retriever", ["tfidf", "dense"], index=0, horizontal=True,
+        format_func=lambda e: "TF-IDF (study headline)" if e == "tfidf"
+        else "Dense (MiniLM)")
 
 jd = st.text_area("Job description (one requirement per line works best)", height=180,
                   value="- Python and pandas\n- Machine learning with scikit-learn\n"
@@ -82,16 +88,20 @@ files = st.file_uploader("Upload resumes (.pdf, .docx, .txt)", type=["pdf", "doc
 if st.button("Screen candidates", type="primary") and files and jd.strip():
     resumes = {f.name: clean(extract_text(f.name, f.read())) for f in files}
     chunks = [c for rid, t in resumes.items() for c in chunk_text(rid, t)]
-    index = ResumeIndex(get_embedder())
+    try:
+        embedder = get_embedder(embedder_choice == "dense")
+    except RuntimeError as e:
+        st.error(str(e))
+        st.stop()
+    index = ResumeIndex(embedder)
     index.build(chunks, extra_corpus=[jd])
     llm = get_llm(variant)
     if variant != "Retrieval-only (no LLM)" and isinstance(llm, RetrievalOnlyLLM):
         st.warning(f"Model file for '{variant}' not found in ./models - using "
                    "retrieval-only scoring. See README to download it.")
-    if index.embedder.kind == "tfidf":
-        st.caption(f"Retrieval: TF-IDF (dense unavailable - "
-                   f"{index.embedder.dense_error}). The similarity floor is tuned for this "
-                   "embedder only.")
+    st.caption(f"Retrieval: {index.embedder.kind} at similarity floor "
+               f"{SIM_FLOOR[index.embedder.kind]}. The two embedder floors are ~10x apart "
+               "and not interchangeable - see README 'Where the floor value comes from'.")
 
     results = []
     bar = st.progress(0.0)

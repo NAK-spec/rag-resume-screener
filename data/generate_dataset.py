@@ -184,6 +184,17 @@ TYPOS = {"analysis": "analyis", "management": "managment", "received": "recieved
          "separate": "seperate", "their": "thier", "successful": "succesful"}
 
 
+def role_years(cursor: int, grad_year: int, span: int) -> tuple[int, int]:
+    """Inclusive (start, end) years for one role, walking backwards from `cursor`.
+
+    The old inline clamp was just max(grad_year, cursor - span). Once the cursor had
+    stepped below graduation year, that returned a start *later* than its own end and the
+    CV printed "2024-2023". Clamping to the cursor too keeps start <= end always; a role
+    that can no longer fit above graduation year collapses to the single year it occupies.
+    """
+    return min(cursor, max(grad_year, cursor - span)), cursor
+
+
 def render(rid: int, rng: random.Random, credits: dict):
     """Compose one resume from the candidate's qualification facts."""
     domain = rng.choice(DOMAINS)
@@ -258,7 +269,7 @@ def render(rid: int, rng: random.Random, credits: dict):
     for r, bullets in enumerate(per_role):
         if not bullets:
             continue
-        end, start = cursor, max(grad_year, cursor - span)
+        start, end = role_years(cursor, grad_year, span)
         cursor = start - 1
         title = role if r == 0 else rng.choice(role_pool)
         where = domain if r == 0 else rng.choice(DOMAINS)

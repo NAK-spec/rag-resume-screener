@@ -13,13 +13,13 @@ Experience: Graduate Data Trainee (logistics, 2023-2024).
   - prompted and evaluated an LLM for draft summaries, logging the failure cases.
   - played in a local football league and captained the side.
   - ran weekly demos of analytics work for a mixed technical and business audience.
-Experience: BI Analyst (fintech, 2023-2022).
+Experience: BI Analyst (fintech, 2022).
   - did exploratory analyis in Python and shared the notebook so colleagues could reproduce it.
   - helped organise the annual staff retreat, travel and logistics included.
   - built a data-cleaning pipeline in Python that validated 15000 records before loading them.
   - compared embedding models for semantic search on an internal 2000-document corpus.
   - automated a manual spreadsheet report in Python, cutting the weekly job from 2 hours to 15 minutes.
-Experience: Reporting Analyst (fintech, 2023-2022).
+Experience: Reporting Analyst (fintech, 2021).
   - trained new joiners on the internal ticketing system.
   - built views and scheduled extracts that 2000 downstream users relied on.
   - wrote meeting minutes and circulated them to 6 participants.

@@ -10,7 +10,7 @@ Experience: Data Analyst Intern (fintech, 2023-2024).
   - greeted visitors and handled 40 inbound calls per week at the front desk.
   - kept the physical filing system and archive rooms in order.
   - volunteered at a community literacy club on weekends.
-Experience: Data Analyst Intern (fintech, 2023-2022).
+Experience: Data Analyst Intern (fintech, 2022).
   - played in a local football league and captained the side.
   - coordinated a company event for 30 attendees, including catering and venue.
   - used SQL plus indexes to make the dashboards load under 45 seconds.

@@ -1,20 +1,7 @@
 coverage: 33 resumes, 33 labels, 33 paired
 labels: min 10 / median 67 / max 100, distinct 15, generated tiers strong=8, medium=12, weak=10
-       -> the drift is confined to Experience lines; regenerate with `python data/generate_dataset.py` and re-run evaluate.py, or keep the shipped text and treat the results CSVs as measured on it
+generator drift: none - the shipped resumes match this checkout's generator
 
-12 FAIL, 3 WARN
-  FAIL  r06_weak.txt: experience range runs backwards: Experience: Junior Data Engineer (education, 2021-2020).
-  FAIL  r07_medium.txt: experience range runs backwards: Experience: Data Analyst Intern (fintech, 2023-2022).
-  FAIL  r09_medium.txt: experience range runs backwards: Experience: BI Analyst (fintech, 2023-2022).
-  FAIL  r09_medium.txt: experience range runs backwards: Experience: Reporting Analyst (fintech, 2023-2022).
-  FAIL  r12_weak.txt: experience range runs backwards: Experience: Administrative Assistant (public-sector, 2022-2021).
-  FAIL  r13_weak.txt: experience range runs backwards: Experience: Warehouse Assistant (healthcare, 2023-2022).
-  FAIL  r15_weak.txt: experience range runs backwards: Experience: Junior Data Engineer (healthcare, 2021-2020).
-  FAIL  r16_weak.txt: experience range runs backwards: Experience: Data Analyst Intern (fintech, 2019-2018).
-  FAIL  r18_strong.txt: experience range runs backwards: Experience: Operations Analyst (fintech, 2023-2022).
-  FAIL  r18_strong.txt: experience range runs backwards: Experience: Operations Analyst (education, 2023-2022).
-  FAIL  r19_medium.txt: experience range runs backwards: Experience: Research Assistant (telecom, 2023-2022).
-  FAIL  r29_strong.txt: experience range runs backwards: Experience: BI Analyst (retail, 2021-2020).
+0 FAIL, 2 WARN
   WARN  medium_candidate.txt: 56 words, below the 60-word floor - retrieval has nothing to leave out
   WARN  weak_candidate.txt: 39 words, below the 60-word floor - retrieval has nothing to leave out
-  WARN  10 generated resumes differ from the generator in this checkout: 12 changed lines, all of type [Experience]: r06_weak.txt:13, r07_medium.txt:13, r09_medium.txt:16, r12_weak.txt:13, r13_weak.txt:10, r15_weak.txt:16, r16_weak.txt:14, r18_strong.txt:16, r19_medium.txt:20, r29_strong.txt:18

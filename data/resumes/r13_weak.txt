@@ -7,7 +7,7 @@ Experience: Data Entry Clerk (public-sector, 2025-2026).
 Experience: Front Desk Officer (energy, 2023-2024).
   - greeted visitors and handled 40 inbound calls per week at the front desk.
   - took a customer-service course covering tone, escalation and follow-up.
-Experience: Warehouse Assistant (healthcare, 2023-2022).
+Experience: Warehouse Assistant (healthcare, 2022).
   - managed rosters and shift swaps for a team of 8 staff.
   - published interactive charts in Tableau and Streamlit that managment used in public-sector reviews.
 Projects:

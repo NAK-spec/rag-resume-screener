@@ -17,7 +17,7 @@ Experience: Graduate Data Trainee (fintech, 2023-2024).
   - built a regression model in scikit-learn to forecast agriculture demand 9 percent closer than the old rule.
   - took a customer-service course covering tone, escalation and follow-up.
   - ran the university chess club's social media page.
-Experience: Research Assistant (telecom, 2023-2022).
+Experience: Research Assistant (telecom, 2022).
   - coordinated a company event for 120 attendees, including catering and venue.
   - wrote multi-table joins and window functions to answer agriculture questions without an analyst.
   - created dashboards that surfaced a 11 percent drop in agriculture volumes the team had missed.

@@ -15,7 +15,7 @@ Experience: Operations Analyst (telecom, 2021-2022).
   - trained a churn prediction model with scikit-learn that improved recall by 18 percent.
   - imaged and set up 12 laptops for new starters.
   - optimised a slow report query, reducing its runtime from 2 minutes to 8 seconds.
-Experience: BI Analyst (retail, 2021-2020).
+Experience: BI Analyst (retail, 2020).
   - wrote meeting minutes and circulated them to 3 participants.
   - shared Plotly charts with non-technical colleagues and iterated on their feedback.
   - greeted visitors and handled 40 inbound calls per week at the front desk.

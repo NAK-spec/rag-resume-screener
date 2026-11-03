@@ -13,7 +13,7 @@ Experience: Marketing Analyst (logistics, 2021-2022).
   - ran a logistic classifier on 8000 labelled cases and compared it against a random-forest baseline.
   - helped organise the annual staff retreat, travel and logistics included.
   - volunteered at a community literacy club on weekends.
-Experience: Junior Data Engineer (healthcare, 2021-2020).
+Experience: Junior Data Engineer (healthcare, 2020).
   - trained a churn prediction model with scikit-learn that improved recall by 12 percent.
   - greeted visitors and handled 120 inbound calls per week at the front desk.
 Projects:

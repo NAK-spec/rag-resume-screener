@@ -13,13 +13,13 @@ Experience: Research Assistant (fintech, 2023-2024).
   - designed the visual language for a reporting pack: consistent scales, annotated thresholds.
   - used pandas groupby and pivot tables to summarise 2000 transactions by region and month.
   - optimised a slow report query, reducing its runtime from 6 minutes to 8 seconds.
-Experience: Operations Analyst (fintech, 2023-2022).
+Experience: Operations Analyst (fintech, 2022).
   - managed rosters and shift swaps for a team of 12 staff.
   - greeted visitors and handled 120 inbound calls per week at the front desk.
   - ran a logistic classifier on 8000 labelled cases and compared it against a random-forest baseline.
   - presented findings to non-technical stakeholders in education and answered their questions live.
   - volunteered at a community literacy club on weekends.
-Experience: Operations Analyst (education, 2023-2022).
+Experience: Operations Analyst (education, 2021).
   - took a customer-service course covering tone, escalation and follow-up.
   - imaged and set up 12 laptops for new starters.
   - coordinated a company event for 60 attendees, including catering and venue.

@@ -1,0 +1,23 @@
+Candidate R07
+
+MSc Applied Machine Learning, 2023. 3 years of work experience, most recently in a public-sector setting.
+Experience: BI Analyst (public-sector, 2025-2026).
+  - set up cross-validation and hyper-parameter search for a gradient-boosting model.
+  - shared Plotly charts with non-technical colleagues and iterated on thier feedback.
+  - reconciled the petty-cash float and prepared banking paperwork.
+  - supported the sales team with quotation paperwork and follow-up calls.
+Experience: Data Analyst Intern (fintech, 2023-2024).
+  - greeted visitors and handled 40 inbound calls per week at the front desk.
+  - kept the physical filing system and archive rooms in order.
+  - volunteered at a community literacy club on weekends.
+Experience: Data Analyst Intern (fintech, 2023-2022).
+  - played in a local football league and captained the side.
+  - coordinated a company event for 30 attendees, including catering and venue.
+  - used SQL plus indexes to make the dashboards load under 45 seconds.
+Projects:
+  - designed the visual language for a reporting pack: consistent scales, annotated thresholds.
+  - ran a logistic classifier on 40000 labelled cases and compared it against a random-forest baseline.
+Education details: coursework in linear algebra, probability and web development.
+Skills: Python, communication, scikit-learn, PostgreSQL, dashboards, Git, reporting, Jira.
+Languages: English, Swahili.
+Additional: available immediately, willing to relocate, driving licence class B.

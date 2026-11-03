@@ -1,0 +1,25 @@
+Candidate R30
+
+BSc Computer Science and Data Science, 2024. 2 years of work experience, most recently in a agriculture setting.
+Experience: Marketing Analyst (agriculture, 2024-2026).
+  - greeted visitors and handled 40 inbound calls per week at the front desk.
+  - wrote meeting minutes and circulated them to 6 participants.
+  - played in a local football league and captained the side.
+  - queried the BigQuery warehouse daily to prepare training and reporting data.
+  - built and evaluated a text classifier, then wrote up why the simpler model won.
+  - helped organise the annual staff retreat, travel and logistics included.
+  - kept the physical filing system and archive rooms in order.
+  - coordinated a company event for 30 attendees, including catering and venue.
+  - trained new joiners on the internal ticketing system.
+  - set up cross-validation and hyper-parameter search for a gradient-boosting model.
+  - volunteered at a community literacy club on weekends.
+  - imaged and set up 6 laptops for new starters.
+  - handled escalations from dissatisfied customers and documented each outcome.
+  - described schema changes and wrote migration scripts for the SQL Server database.
+Projects:
+  - trained a churn prediction model with scikit-learn that improved recall by 15 percent.
+  - built views and scheduled extracts that 8000 downstream users relied on.
+Education details: coursework in linear algebra, probability and web development.
+Skills: data visualization, scikit-learn, PostgreSQL, Jira, time managment.
+Languages: English, Swahili.
+Courses: online certificate in project management, weekend workshop on spreadsheet basics.

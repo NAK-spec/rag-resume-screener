@@ -1,0 +1,20 @@
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|##########| 103/103 [00:00<00:00, 3127.97it/s]
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+embedder: dense | resumes: 33 | chunks: 111
+resume length: min 39 / mean 222 / max 480 words
+skipping (no GGUF in ./models): Q8_0 (8-bit), F16 (baseline)
+
+per-resume detail: 66 rows -> per_resume_dense.csv
+
+       variant mode embedder  n  spearman  kendall  n_distinct_scores  modal_share   mae  within_10  cov_spearman  cov_mae  cov_within_10  avg_latency_s  avg_tok_per_s  model_load_s  peak_rss_mb  model_size_mb  avg_prompt_words  rag_words_vs_full  median_rag_words  median_full_words
+Q4_K_M (4-bit)  rag    dense 33     0.668    0.568                  5        0.576 16.58      0.394         0.566    23.09          0.152         16.185            8.5          1.98       2463.0         1117.0             178.0              0.585             177.0              297.0
+Q4_K_M (4-bit) full    dense 33     0.262    0.225                  2        0.970 30.48      0.273        -0.177    53.58          0.121         22.566            8.2          1.98       2492.0         1117.0             304.0                NaN               NaN                NaN
+
+[degenerate scores] these rows put more than half of all candidates on ONE score, so their rho/tau is carried by a few outliers and must not be quoted as a ranking result: Q4_K_M (4-bit)/rag (modal 58%, 5 distinct of 33), Q4_K_M (4-bit)/full (modal 97%, 2 distinct of 33)
+
+peak_rss_mb is process-wide: to compare memory across quantization levels, run one variant per process, e.g. evaluate.py --variant 'Q4_K_M (4-bit)'.
+
+Prompt compression (RAG vs full context, mean words):
+  Q4_K_M (4-bit)            304 ->    178 words (+41.5%), RAG shorter on 30/33 resumes
+
+Saved to results_dense.csv

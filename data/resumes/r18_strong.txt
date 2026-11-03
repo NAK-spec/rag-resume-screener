@@ -1,0 +1,32 @@
+Candidate R18
+
+BSc Statistics, 2023. 3 years of work experience, most recently in a education setting.
+Experience: Research Assistant (education, 2025-2026).
+  - turned a confusing weekly report into a one-page visual summary with matplotlib.
+  - supported the sales team with quotation paperwork and follow-up calls.
+  - produced written handovers for cross-team projects with clear next steps.
+  - helped organise the annual staff retreat, travel and logistics included.
+  - described schema changes and wrote migration scripts for the SQLite database.
+Experience: Research Assistant (fintech, 2023-2024).
+  - built a data-cleaning pipeline in Python that validated 40000 records before loading them.
+  - built and evaluated a text classifier, then wrote up why the simpler model won.
+  - designed the visual language for a reporting pack: consistent scales, annotated thresholds.
+  - used pandas groupby and pivot tables to summarise 2000 transactions by region and month.
+  - optimised a slow report query, reducing its runtime from 6 minutes to 8 seconds.
+Experience: Operations Analyst (fintech, 2023-2022).
+  - managed rosters and shift swaps for a team of 12 staff.
+  - greeted visitors and handled 120 inbound calls per week at the front desk.
+  - ran a logistic classifier on 8000 labelled cases and compared it against a random-forest baseline.
+  - presented findings to non-technical stakeholders in education and answered their questions live.
+  - volunteered at a community literacy club on weekends.
+Experience: Operations Analyst (education, 2023-2022).
+  - took a customer-service course covering tone, escalation and follow-up.
+  - imaged and set up 12 laptops for new starters.
+  - coordinated a company event for 60 attendees, including catering and venue.
+  - wrote meeting minutes and circulated them to 6 participants.
+Projects:
+  - wrote Python scripts with pandas to clean and merge 15000 rows of messy operational data.
+Education details: coursework in linear algebra, probability and web development.
+Certifications: data literacy workshop.
+Skills: NLP and large language models, pandas, scikit-learn, PostgreSQL, dashboards, technical writing, Jira, time management, reporting.
+Languages: English, Swahili.

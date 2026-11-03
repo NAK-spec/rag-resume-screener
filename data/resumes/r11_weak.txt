@@ -1,0 +1,13 @@
+Candidate R11
+
+Diploma in Information Technology, 2025. 1 year of work experience, most recently in a healthcare setting.
+Experience: Reporting Analyst (healthcare, 2025-2026).
+  - took a customer-service course covering tone, escalation and follow-up.
+  - profiled 8000 rows of survey responses in pandas to find missing-value patterns.
+  - assisted with inventory counts in the warehouse 3 times a year.
+  - used pandas groupby and pivot tables to summarise 2000 transactions by region and month.
+  - trained new joiners on the internal ticketing system.
+Certifications: cloud fundamentals badge.
+Skills: communication, pandas, reporting, time management.
+Languages: English, Luganda.
+Additional: available immediately, willing to relocate, driving licence class B.

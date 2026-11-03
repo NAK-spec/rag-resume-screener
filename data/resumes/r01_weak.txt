@@ -1,0 +1,21 @@
+Candidate R01
+
+Diploma in Information Technology, 2022. 4 years of work experience, most recently in a logistics setting.
+Experience: Data Analyst Intern (logistics, 2022-2026).
+  - wrote meeting minutes and circulated them to 12 participants.
+  - handled escalations from dissatisfied customers and documented each outcome.
+  - supported the sales team with quotation paperwork and follow-up calls.
+  - assisted with inventory counts in the warehouse 6 times a year.
+  - reconciled data quality issues by auditing SQL aggregations against source tables.
+  - volunteered at a community literacy club on weekends.
+  - managed rosters and shift swaps for a team of 4 staff.
+  - ran the university chess club's social media page.
+  - optimised a slow report query, reducing its runtime from 2 minutes to 15 seconds.
+  - played in a local football league and captained the side.
+  - wrote multi-table joins and window functions to answer logistics questions without an analyst.
+Projects:
+  - described schema changes and wrote migration scripts for the MySQL database.
+Education details: coursework in databases, statistics and operating systems.
+Certifications: spreadsheet associate certificate.
+Skills: PostgreSQL, Microsoft Excel, Jira, time managment.
+Languages: English, Luganda.

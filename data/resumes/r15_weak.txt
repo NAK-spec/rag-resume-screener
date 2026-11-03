@@ -1,0 +1,24 @@
+Candidate R15
+
+Diploma in Information Technology, 2021. 5 years of work experience, most recently in a fintech setting.
+Experience: Marketing Analyst (fintech, 2025-2026).
+  - wrote meeting minutes and circulated them to 6 participants.
+  - ran the university chess club's social media page.
+  - handled escalations from dissatisfied customers and documented each outcome.
+Experience: BI Analyst (logistics, 2023-2024).
+  - managed rosters and shift swaps for a team of 4 staff.
+  - kept the physical filing system and archive rooms in order.
+  - reconciled the petty-cash float and prepared banking paperwork.
+Experience: Marketing Analyst (logistics, 2021-2022).
+  - ran a logistic classifier on 8000 labelled cases and compared it against a random-forest baseline.
+  - helped organise the annual staff retreat, travel and logistics included.
+  - volunteered at a community literacy club on weekends.
+Experience: Junior Data Engineer (healthcare, 2021-2020).
+  - trained a churn prediction model with scikit-learn that improved recall by 12 percent.
+  - greeted visitors and handled 120 inbound calls per week at the front desk.
+Projects:
+  - clustered 15000 customers with k-means to help the fintech team segment its outreach.
+Education details: graduated part-time while working.
+Skills: scikit-learn, Microsoft Excel.
+Languages: English, French.
+Objective: to secure a challenging position where I can grow my skills and contribute to organisational goals.

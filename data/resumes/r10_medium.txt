@@ -1,0 +1,20 @@
+Candidate R10
+
+Certificate in Business Analytics, 2022. 4 years of work experience, most recently in a public-sector setting.
+Experience: Graduate Data Trainee (public-sector, 2022-2026).
+  - managed rosters and shift swaps for a team of 12 staff.
+  - kept the physical filing system and archive rooms in order.
+  - took a customer-service course covering tone, escalation and follow-up.
+  - reconciled the petty-cash float and prepared banking paperwork.
+  - wrote Python scripts with pandas to clean and merge 500 rows of messy operational data.
+  - translated model limitations into plain language for the public-sector leadership team.
+  - greeted visitors and handled 120 inbound calls per week at the front desk.
+  - ran a logistic classifier on 15000 labelled cases and compared it against a random-forest baseline.
+Projects:
+  - set up cross-validation and hyper-parameter search for a gradient-boosting model.
+  - wrote the documentation and runbooks that new team members still use.
+  - automated a manual spreadsheet report in Python, cutting the weekly job from 2 hours to 15 minutes.
+Education details: graduated part-time while working.
+Certifications: data literacy workshop.
+Skills: SQL, data visualization, pandas, scikit-learn, technical writing, Microsoft Excel, teamwork.
+Languages: English, Arabic.

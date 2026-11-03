@@ -1,0 +1,30 @@
+Candidate R21
+
+BSc Statistics, 2018. 8 years of work experience, most recently in a public-sector setting.
+Experience: Graduate Data Trainee (public-sector, 2022-2026).
+  - helped organise the annual staff retreat, travel and logistics included.
+  - evaluated two open-source language models on a labelled public-sector dataset.
+  - did feature engineering on public-sector logs and improved the model's ROC-AUC by 12 points.
+  - kept the physical filing system and archive rooms in order.
+  - set up cross-validation and hyper-parameter search for a gradient-boosting model.
+  - played in a local football league and captained the side.
+  - greeted visitors and handled 40 inbound calls per week at the front desk.
+  - managed rosters and shift swaps for a team of 4 staff.
+  - trained new joiners on the internal ticketing system.
+  - wrote meeting minutes and circulated them to 12 participants.
+Experience: Reporting Analyst (healthcare, 2018-2021).
+  - took a customer-service course covering tone, escalation and follow-up.
+  - volunteered at a community literacy club on weekends.
+  - imaged and set up 3 laptops for new starters.
+  - reconciled the petty-cash float and prepared banking paperwork.
+  - described schema changes and wrote migration scripts for the SQL Server database.
+  - coordinated a company event for 120 attendees, including catering and venue.
+  - handled escalations from dissatisfied customers and documented each outcome.
+  - built a retrieval-augmented chatbot over internal documents using sentence embeddings.
+  - optimised a slow report query, reducing its runtime from 2 minutes to 30 seconds.
+Projects:
+  - described schema changes and wrote migration scripts for the SQLite database.
+Education details: final year project supervised by the public-sector analytics group.
+Certifications: internal analytics programme, 2 modules.
+Skills: Python, scikit-learn, PostgreSQL, LLM APIs, Jira, reporting.
+Languages: English, Luganda.

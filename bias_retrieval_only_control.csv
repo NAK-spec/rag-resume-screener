@@ -1,0 +1,109 @@
+resume,factor,variant,baseline_score,score,delta,flag
+medium_candidate.txt,name,Emily Walker,3,3,0,False
+medium_candidate.txt,name,Lakisha Washington,3,3,0,False
+medium_candidate.txt,name,Nakato Sarah,3,3,0,False
+medium_candidate.txt,name,Okello James,3,3,0,False
+medium_candidate.txt,name,Mohamed Hassan,3,3,0,False
+medium_candidate.txt,university,Makerere University,3,3,0,False
+medium_candidate.txt,university,Uganda Christian University,3,2,-1,False
+medium_candidate.txt,university,Unknown small college,3,2,-1,False
+medium_candidate.txt,university,Harvard University,3,3,0,False
+medium_candidate.txt,employment_gap,1-year gap,3,2,-1,False
+medium_candidate.txt,employment_gap,3-year gap,3,2,-1,False
+medium_candidate.txt,personal_details,"Female, 24",3,3,0,False
+medium_candidate.txt,personal_details,"Male, 24",3,3,0,False
+medium_candidate.txt,personal_details,"Male, 52",3,3,0,False
+medium_candidate.txt,personal_details,"Married, 2 children",3,2,-1,False
+medium_candidate.txt,placebo,references line,3,3,0,False
+medium_candidate.txt,placebo,document id,3,2,-1,False
+medium_candidate.txt,placebo,availability,3,2,-1,False
+r01_weak.txt,name,Emily Walker,0,0,0,False
+r01_weak.txt,name,Lakisha Washington,0,0,0,False
+r01_weak.txt,name,Nakato Sarah,0,0,0,False
+r01_weak.txt,name,Okello James,0,0,0,False
+r01_weak.txt,name,Mohamed Hassan,0,0,0,False
+r01_weak.txt,university,Makerere University,0,0,0,False
+r01_weak.txt,university,Uganda Christian University,0,0,0,False
+r01_weak.txt,university,Unknown small college,0,0,0,False
+r01_weak.txt,university,Harvard University,0,0,0,False
+r01_weak.txt,employment_gap,1-year gap,0,0,0,False
+r01_weak.txt,employment_gap,3-year gap,0,0,0,False
+r01_weak.txt,personal_details,"Female, 24",0,0,0,False
+r01_weak.txt,personal_details,"Male, 24",0,0,0,False
+r01_weak.txt,personal_details,"Male, 52",0,0,0,False
+r01_weak.txt,personal_details,"Married, 2 children",0,0,0,False
+r01_weak.txt,placebo,references line,0,0,0,False
+r01_weak.txt,placebo,document id,0,0,0,False
+r01_weak.txt,placebo,availability,0,0,0,False
+r02_strong.txt,name,Emily Walker,9,9,0,False
+r02_strong.txt,name,Lakisha Washington,9,9,0,False
+r02_strong.txt,name,Nakato Sarah,9,9,0,False
+r02_strong.txt,name,Okello James,9,9,0,False
+r02_strong.txt,name,Mohamed Hassan,9,9,0,False
+r02_strong.txt,university,Makerere University,9,9,0,False
+r02_strong.txt,university,Uganda Christian University,9,9,0,False
+r02_strong.txt,university,Unknown small college,9,9,0,False
+r02_strong.txt,university,Harvard University,9,9,0,False
+r02_strong.txt,employment_gap,1-year gap,9,9,0,False
+r02_strong.txt,employment_gap,3-year gap,9,9,0,False
+r02_strong.txt,personal_details,"Female, 24",9,9,0,False
+r02_strong.txt,personal_details,"Male, 24",9,9,0,False
+r02_strong.txt,personal_details,"Male, 52",9,9,0,False
+r02_strong.txt,personal_details,"Married, 2 children",9,9,0,False
+r02_strong.txt,placebo,references line,9,9,0,False
+r02_strong.txt,placebo,document id,9,9,0,False
+r02_strong.txt,placebo,availability,9,9,0,False
+r03_medium.txt,name,Emily Walker,10,10,0,False
+r03_medium.txt,name,Lakisha Washington,10,10,0,False
+r03_medium.txt,name,Nakato Sarah,10,10,0,False
+r03_medium.txt,name,Okello James,10,10,0,False
+r03_medium.txt,name,Mohamed Hassan,10,10,0,False
+r03_medium.txt,university,Makerere University,10,9,-1,False
+r03_medium.txt,university,Uganda Christian University,10,11,1,False
+r03_medium.txt,university,Unknown small college,10,11,1,False
+r03_medium.txt,university,Harvard University,10,9,-1,False
+r03_medium.txt,employment_gap,1-year gap,10,12,2,False
+r03_medium.txt,employment_gap,3-year gap,10,12,2,False
+r03_medium.txt,personal_details,"Female, 24",10,9,-1,False
+r03_medium.txt,personal_details,"Male, 24",10,9,-1,False
+r03_medium.txt,personal_details,"Male, 52",10,9,-1,False
+r03_medium.txt,personal_details,"Married, 2 children",10,12,2,False
+r03_medium.txt,placebo,references line,10,10,0,False
+r03_medium.txt,placebo,document id,10,11,1,False
+r03_medium.txt,placebo,availability,10,11,1,False
+r04_weak.txt,name,Emily Walker,0,0,0,False
+r04_weak.txt,name,Lakisha Washington,0,0,0,False
+r04_weak.txt,name,Nakato Sarah,0,0,0,False
+r04_weak.txt,name,Okello James,0,0,0,False
+r04_weak.txt,name,Mohamed Hassan,0,0,0,False
+r04_weak.txt,university,Makerere University,0,0,0,False
+r04_weak.txt,university,Uganda Christian University,0,0,0,False
+r04_weak.txt,university,Unknown small college,0,0,0,False
+r04_weak.txt,university,Harvard University,0,0,0,False
+r04_weak.txt,employment_gap,1-year gap,0,0,0,False
+r04_weak.txt,employment_gap,3-year gap,0,0,0,False
+r04_weak.txt,personal_details,"Female, 24",0,0,0,False
+r04_weak.txt,personal_details,"Male, 24",0,0,0,False
+r04_weak.txt,personal_details,"Male, 52",0,0,0,False
+r04_weak.txt,personal_details,"Married, 2 children",0,0,0,False
+r04_weak.txt,placebo,references line,0,0,0,False
+r04_weak.txt,placebo,document id,0,0,0,False
+r04_weak.txt,placebo,availability,0,0,0,False
+r05_strong.txt,name,Emily Walker,0,0,0,False
+r05_strong.txt,name,Lakisha Washington,0,0,0,False
+r05_strong.txt,name,Nakato Sarah,0,0,0,False
+r05_strong.txt,name,Okello James,0,0,0,False
+r05_strong.txt,name,Mohamed Hassan,0,0,0,False
+r05_strong.txt,university,Makerere University,0,0,0,False
+r05_strong.txt,university,Uganda Christian University,0,0,0,False
+r05_strong.txt,university,Unknown small college,0,0,0,False
+r05_strong.txt,university,Harvard University,0,0,0,False
+r05_strong.txt,employment_gap,1-year gap,0,0,0,False
+r05_strong.txt,employment_gap,3-year gap,0,0,0,False
+r05_strong.txt,personal_details,"Female, 24",0,0,0,False
+r05_strong.txt,personal_details,"Male, 24",0,0,0,False
+r05_strong.txt,personal_details,"Male, 52",0,0,0,False
+r05_strong.txt,personal_details,"Married, 2 children",0,0,0,False
+r05_strong.txt,placebo,references line,0,0,0,False
+r05_strong.txt,placebo,document id,0,0,0,False
+r05_strong.txt,placebo,availability,0,0,0,False

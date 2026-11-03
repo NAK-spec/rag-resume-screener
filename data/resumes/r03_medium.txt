@@ -1,0 +1,23 @@
+Candidate R03
+
+MSc Applied Machine Learning, 2018. 8 years of work experience, most recently in a fintech setting.
+Experience: BI Analyst (fintech, 2022-2026).
+  - queried the SQL Server warehouse daily to prepare training and reporting data.
+  - supported the sales team with quotation paperwork and follow-up calls.
+  - explained data caveats in a report that changed a product decision.
+  - kept the physical filing system and archive rooms in order.
+  - built a regression model in scikit-learn to forecast fintech demand 6 percent closer than the old rule.
+Experience: Junior Data Engineer (energy, 2018-2021).
+  - presented findings to non-technical stakeholders in fintech and answered their questions live.
+  - did feature engineering on fintech logs and improved the model's ROC-AUC by 11 points.
+  - built views and scheduled extracts that 2000 downstream users relied on.
+  - imaged and set up 6 laptops for new starters.
+  - volunteered at a community literacy club on weekends.
+Projects:
+  - wrote the documentation and runbooks that new team members still use.
+  - described schema changes and wrote migration scripts for the BigQuery database.
+  - clustered 15000 customers with k-means to help the fintech team segment its outreach.
+Education details: coursework in databases, statistics and operating systems.
+Skills: Python, NLP and large language models, scikit-learn, PostgreSQL, technical writing, reporting, time managment.
+Languages: English, Luganda.
+Courses: online certificate in project management, weekend workshop on spreadsheet basics.

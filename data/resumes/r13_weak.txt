@@ -1,0 +1,18 @@
+Candidate R13
+
+BSc Statistics, 2023. 3 years of work experience, most recently in a public-sector setting.
+Experience: Data Entry Clerk (public-sector, 2025-2026).
+  - trained new joiners on the internal ticketing system.
+  - wrote meeting minutes and circulated them to 6 participants.
+Experience: Front Desk Officer (energy, 2023-2024).
+  - greeted visitors and handled 40 inbound calls per week at the front desk.
+  - took a customer-service course covering tone, escalation and follow-up.
+Experience: Warehouse Assistant (healthcare, 2023-2022).
+  - managed rosters and shift swaps for a team of 8 staff.
+  - published interactive charts in Tableau and Streamlit that managment used in public-sector reviews.
+Projects:
+  - created dashboards that surfaced a 15 percent drop in public-sector volumes the team had missed.
+Certifications: data literacy workshop.
+Skills: Python, dashboards, time management, teamwork, Git.
+Languages: English, Arabic.
+Courses: online certificate in project management, weekend workshop on spreadsheet basics.

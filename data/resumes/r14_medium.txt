@@ -1,0 +1,23 @@
+Candidate R14
+
+MSc Applied Machine Learning, 2024. 2 years of work experience, most recently in a logistics setting.
+Experience: Research Assistant (logistics, 2024-2026).
+  - ran the university chess club's social media page.
+  - wrote meeting minutes and circulated them to 4 participants.
+  - ran a logistic classifier on 2000 labelled cases and compared it against a random-forest baseline.
+  - greeted visitors and handled 250 inbound calls per week at the front desk.
+  - supported the sales team with quotation paperwork and follow-up calls.
+  - built a keyword-plus-embedding matcher that routed 15000 requests to the right team.
+  - took a customer-service course covering tone, escalation and follow-up.
+  - reconciled data quality issues by auditing SQL aggregations against source tables.
+  - kept the physical filing system and archive rooms in order.
+  - helped organise the annual staff retreat, travel and logistics included.
+  - played in a local football league and captained the side.
+Projects:
+  - pulled cohort metrics with SQL for weekly logistics reviews.
+  - compared embedding models for semantic search on an internal 40000-document corpus.
+  - set up cross-validation and hyper-parameter search for a gradient-boosting model.
+Education details: graduated part-time while working.
+Skills: data visualization, scikit-learn, PostgreSQL, LLM APIs, Microsoft Excel.
+Languages: English, Luganda.
+Additional: available immediately, willing to relocate, driving licence class B.

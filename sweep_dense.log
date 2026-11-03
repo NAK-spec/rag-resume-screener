@@ -1,0 +1,21 @@
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|##########| 103/103 [00:00<00:00, 1410.58it/s]
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+embedder: dense | resumes: 33 | chunks: 111 | requirements: 6
+
+ floor    weak  medium  strong  str-weak  passages  no-evidence
+---------------------------------------------------------------
+ 0.000    5.91    6.00    6.00      0.09      1.12         0.5%
+ 0.045    5.91    6.00    6.00      0.09      1.12         0.5%
+ 0.090    5.91    6.00    6.00      0.09      1.12         0.5%
+ 0.135    5.82    5.92    6.00      0.18      1.12         1.5%
+ 0.180    4.64    5.92    5.90      1.26      1.09         8.6%
+ 0.225    3.64    5.75    5.70      2.06      1.09        16.2%
+*0.240    3.09    5.67    5.40      2.31      1.09        21.2%
+ 0.270    2.36    4.33    4.60      2.24      1.09        37.4%
+ 0.315    1.64    3.33    3.70      2.06      1.06        52.0%
+ 0.360    1.09    2.33    2.80      1.71      1.06        65.7%
+ 0.405    0.73    1.50    1.40      0.67      0.88        79.8%
+ 0.450    0.45    0.75    0.80      0.35      0.58        88.9%
+
+* = the value currently in rag/config.py SIM_FLOOR
+Pick the floor with the widest strong-weak gap that still returns passages; past the peak, strong candidates lose evidence faster than weak ones.

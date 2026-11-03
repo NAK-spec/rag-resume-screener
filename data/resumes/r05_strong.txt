@@ -1,0 +1,29 @@
+Candidate R05
+
+BSc Information Systems, 2018. 8 years of work experience, most recently in a telecom setting.
+Experience: BI Analyst (telecom, 2023-2026).
+  - designed the visual language for a reporting pack: consistent scales, annotated thresholds.
+  - created dashboards that surfaced a 15 percent drop in telecom volumes the team had missed.
+  - ran the university chess club's social media page.
+  - helped organise the annual staff retreat, travel and logistics included.
+  - greeted visitors and handled 70 inbound calls per week at the front desk.
+  - compared embedding models for semantic search on an internal 15000-document corpus.
+Experience: Research Assistant (telecom, 2019-2022).
+  - wrote meeting minutes and circulated them to 12 participants.
+  - set up cross-validation and hyper-parameter search for a gradient-boosting model.
+  - managed rosters and shift swaps for a team of 8 staff.
+  - described schema changes and wrote migration scripts for the BigQuery database.
+  - trained new joiners on the internal ticketing system.
+  - used pandas groupby and pivot tables to summarise 40000 transactions by region and month.
+Experience: Marketing Analyst (agriculture, 2018).
+  - coordinated a company event for 30 attendees, including catering and venue.
+  - handled date parsing, merges and duplicate removal on 15000 records using pandas.
+  - optimised a slow report query, reducing its runtime from 4 minutes to 15 seconds.
+  - built a retrieval-augmented chatbot over internal documents using sentence embeddings.
+  - did feature engineering on telecom logs and improved the model's ROC-AUC by 9 points.
+Projects:
+  - fine-tuned a small language model for text classification and measured the accuracy lift.
+Education details: coursework in statistics, research methods and economics.
+Skills: communication, pandas, scikit-learn, PostgreSQL, dashboards, LLM APIs, Git, time managment.
+Languages: English, Arabic.
+References available on request.

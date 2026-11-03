@@ -1,0 +1,23 @@
+Candidate R06
+
+BSc Statistics, 2021. 5 years of work experience, most recently in a healthcare setting.
+Experience: Operations Analyst (healthcare, 2024-2026).
+  - supported the sales team with quotation paperwork and follow-up calls.
+  - did exploratory analyis in Python and shared the notebook so colleagues could reproduce it.
+  - wrote meeting minutes and circulated them to 4 participants.
+  - played in a local football league and captained the side.
+Experience: BI Analyst (healthcare, 2021-2023).
+  - took a customer-service course covering tone, escalation and follow-up.
+  - managed rosters and shift swaps for a team of 8 staff.
+  - helped organise the annual staff retreat, travel and logistics included.
+Experience: Junior Data Engineer (education, 2021-2020).
+  - reconciled the petty-cash float and prepared banking paperwork.
+  - trained new joiners on the internal ticketing system.
+  - coordinated a company event for 30 attendees, including catering and venue.
+Projects:
+  - automated a manual spreadsheet report in Python, cutting the weekly job from 4 hours to 30 minutes.
+Education details: final year project supervised by the healthcare analytics group.
+Certifications: cloud fundamentals badge.
+Skills: pandas, Jira, Microsoft Excel.
+Languages: English, Arabic.
+Courses: online certificate in project managment, weekend workshop on spreadsheet basics.

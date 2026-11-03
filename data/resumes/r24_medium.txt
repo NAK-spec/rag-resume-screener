@@ -1,0 +1,28 @@
+Candidate R24
+
+BSc Computer Science and Data Science, 2019. 7 years of work experience, most recently in a retail setting.
+Experience: Reporting Analyst (retail, 2024-2026).
+  - profiled 2000 rows of survey responses in pandas to find missing-value patterns.
+  - coordinated a company event for 200 attendees, including catering and venue.
+  - handled escalations from dissatisfied customers and documented each outcome.
+  - built a data-cleaning pipeline in Python that validated 2000 records before loading them.
+  - volunteered at a community literacy club on weekends.
+  - mentored {n2} interns on how to structure an analyis and report it honestly.
+Experience: BI Analyst (public-sector, 2021-2023).
+  - presented findings to non-technical stakeholders in retail and answered their questions live.
+  - queried the BigQuery warehouse daily to prepare training and reporting data.
+  - supported the sales team with quotation paperwork and follow-up calls.
+  - took a customer-service course covering tone, escalation and follow-up.
+  - did exploratory analysis in Python and shared the notebook so colleagues could reproduce it.
+Experience: Marketing Analyst (logistics, 2019-2020).
+  - translated model limitations into plain language for the retail leadership team.
+  - wrote multi-table joins and window functions to answer retail questions without an analyst.
+  - reconciled the petty-cash float and prepared banking paperwork.
+  - kept the physical filing system and archive rooms in order.
+  - pulled cohort metrics with SQL for weekly retail reviews.
+Projects:
+  - built views and scheduled extracts that 15000 downstream users relied on.
+  - automated a manual spreadsheet report in Python, cutting the weekly job from 6 hours to 8 minutes.
+Education details: final year project supervised by the retail analytics group.
+Skills: machine learning, pandas, PostgreSQL, technical writing, time managment, Git.
+Languages: English, Luganda.

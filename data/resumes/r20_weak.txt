@@ -1,0 +1,20 @@
+Candidate R20
+
+Diploma in Information Technology, 2022. 4 years of work experience, most recently in a public-sector setting.
+Experience: Data Analyst Intern (public-sector, 2024-2026).
+  - assisted with inventory counts in the warehouse 12 times a year.
+  - greeted visitors and handled 40 inbound calls per week at the front desk.
+  - imaged and set up 8 laptops for new starters.
+  - helped organise the annual staff retreat, travel and logistics included.
+  - set up cross-validation and hyper-parameter search for a gradient-boosting model.
+Experience: Data Analyst Intern (e-commerce, 2022-2023).
+  - ran a logistic classifier on 8000 labelled cases and compared it against a random-forest baseline.
+  - built a regression model in scikit-learn to forecast public-sector demand 15 percent closer than the old rule.
+  - coordinated a company event for 120 attendees, including catering and venue.
+  - managed rosters and shift swaps for a team of 6 staff.
+  - handled escalations from dissatisfied customers and documented each outcome.
+Education details: final year project supervised by the public-sector analytics group.
+Certifications: spreadsheet associate certificate.
+Skills: scikit-learn, Jira, Microsoft Excel, Git.
+Languages: English, French.
+Declaration: I certify that the information above is true to the best of my knowledge.

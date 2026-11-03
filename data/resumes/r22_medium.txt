@@ -1,0 +1,26 @@
+Candidate R22
+
+Certificate in Business Analytics, 2022. 4 years of work experience, most recently in a public-sector setting.
+Experience: Reporting Analyst (public-sector, 2025-2026).
+  - presented findings to non-technical stakeholders in public-sector and answered their questions live.
+  - coordinated a company event for 200 attendees, including catering and venue.
+  - played in a local football league and captained the side.
+  - supported the sales team with quotation paperwork and follow-up calls.
+  - kept the physical filing system and archive rooms in order.
+Experience: Data Analyst Intern (agriculture, 2023-2024).
+  - built and evaluated a text classifier, then wrote up why the simpler model won.
+  - reconciled data quality issues by auditing SQL aggregations against source tables.
+  - trained a churn prediction model with scikit-learn that improved recall by 22 percent.
+  - produced written handovers for cross-team projects with clear next steps.
+  - took a customer-service course covering tone, escalation and follow-up.
+Experience: Data Analyst Intern (fintech, 2022).
+  - described schema changes and wrote migration scripts for the MySQL database.
+  - mentored {n2} interns on how to structure an analysis and report it honestly.
+  - wrote multi-table joins and window functions to answer public-sector questions without an analyst.
+  - handled escalations from dissatisfied customers and documented each outcome.
+  - ran a logistic classifier on 40000 labelled cases and compared it against a random-forest baseline.
+Projects:
+  - optimised a slow report query, reducing its runtime from 2 minutes to 45 seconds.
+Education details: coursework in linear algebra, probability and web development.
+Skills: Python, scikit-learn, PostgreSQL, technical writing, time management, Jira.
+Languages: English, French.

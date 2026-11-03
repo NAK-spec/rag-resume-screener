@@ -1,0 +1,29 @@
+Candidate R23
+
+BSc Information Systems, 2019. 7 years of work experience, most recently in a energy setting.
+Experience: Data Analyst Intern (energy, 2024-2026).
+  - played in a local football league and captained the side.
+  - volunteered at a community literacy club on weekends.
+  - replaced a fragile Excel macro with a Python script the whole team could rerun.
+  - helped organise the annual staff retreat, travel and logistics included.
+  - did feature engineering on energy logs and improved the model's ROC-AUC by 22 points.
+  - shared Plotly charts with non-technical colleagues and iterated on thier feedback.
+Experience: Marketing Analyst (logistics, 2021-2023).
+  - supported the sales team with quotation paperwork and follow-up calls.
+  - kept the physical filing system and archive rooms in order.
+  - greeted visitors and handled 120 inbound calls per week at the front desk.
+  - handled escalations from dissatisfied customers and documented each outcome.
+  - imaged and set up 4 laptops for new starters.
+Experience: Data Analyst Intern (healthcare, 2019-2020).
+  - ran the university chess club's social media page.
+  - presented findings to non-technical stakeholders in energy and answered their questions live.
+  - managed rosters and shift swaps for a team of 6 staff.
+  - wrote multi-table joins and window functions to answer energy questions without an analyst.
+  - coordinated a company event for 200 attendees, including catering and venue.
+Projects:
+  - wrote Python scripts with pandas to clean and merge 40000 rows of messy operational data.
+  - translated model limitations into plain language for the energy leadership team.
+  - reconciled data quality issues by auditing SQL aggregations against source tables.
+Education details: graduated part-time while working.
+Skills: NLP and large language models, pandas, scikit-learn, PostgreSQL, dashboards, technical writing, Git, teamwork, reporting.
+Languages: English, Arabic.

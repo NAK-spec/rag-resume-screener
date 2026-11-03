@@ -1,0 +1,27 @@
+Candidate R29
+
+BSc Information Systems, 2021. 5 years of work experience, most recently in a retail setting.
+Experience: Operations Analyst (retail, 2025-2026).
+  - reconciled the petty-cash float and prepared banking paperwork.
+  - supported the sales team with quotation paperwork and follow-up calls.
+  - managed rosters and shift swaps for a team of 8 staff.
+  - played in a local football league and captained the side.
+Experience: Junior Data Engineer (retail, 2023-2024).
+  - coordinated a company event for 30 attendees, including catering and venue.
+  - mentored {n2} interns on how to structure an analyis and report it honestly.
+  - took a customer-service course covering tone, escalation and follow-up.
+  - replaced a fragile Excel macro with a Python script the whole team could rerun.
+Experience: Operations Analyst (telecom, 2021-2022).
+  - trained a churn prediction model with scikit-learn that improved recall by 18 percent.
+  - imaged and set up 12 laptops for new starters.
+  - optimised a slow report query, reducing its runtime from 2 minutes to 8 seconds.
+Experience: BI Analyst (retail, 2021-2020).
+  - wrote meeting minutes and circulated them to 3 participants.
+  - shared Plotly charts with non-technical colleagues and iterated on their feedback.
+  - greeted visitors and handled 40 inbound calls per week at the front desk.
+Projects:
+  - wrote Python scripts with pandas to clean and merge 15000 rows of messy operational data.
+Certifications: spreadsheet associate certificate.
+Skills: NLP and large language models, pandas, scikit-learn, PostgreSQL, dashboards, technical writing, Jira, Microsoft Excel.
+Languages: English, Swahili.
+Additional: available immediately, willing to relocate, driving licence class B.

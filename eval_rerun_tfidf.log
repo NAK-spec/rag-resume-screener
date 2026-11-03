@@ -1,0 +1,17 @@
+embedder: tfidf | resumes: 33 | chunks: 111
+[caveat] TF-IDF retrieval, not the dense embedder — the similarity floor in rag/config.py was swept for tfidf only. Dense load error: ModuleNotFoundError: No module named 'sentence_transformers'
+resume length: min 39 / mean 222 / max 480 words
+skipping (no GGUF in ./models): Q8_0 (8-bit), F16 (baseline)
+
+per-resume detail: 66 rows -> per_resume.csv
+
+       variant mode embedder  n  spearman  kendall   mae  within_10  cov_spearman  cov_mae  cov_within_10  avg_latency_s  avg_tok_per_s  model_load_s  peak_rss_mb  model_size_mb  avg_prompt_words  rag_words_vs_full  median_rag_words  median_full_words
+Q4_K_M (4-bit)  rag    tfidf 33     0.560    0.474 27.76      0.364         0.464    24.45          0.182         13.933            9.2          1.76       2074.0         1117.0             172.0              0.566             177.0              297.0
+Q4_K_M (4-bit) full    tfidf 33     0.262    0.225 30.48      0.273        -0.177    53.58          0.121         22.828            8.1          1.76       2111.0         1117.0             304.0                NaN               NaN                NaN
+
+peak_rss_mb is process-wide: to compare memory across quantization levels, run one variant per process, e.g. evaluate.py --variant 'Q4_K_M (4-bit)'.
+
+Prompt compression (RAG vs full context, mean words):
+  Q4_K_M (4-bit)            304 ->    172 words (+43.4%), RAG shorter on 30/33 resumes
+
+Saved to results.csv

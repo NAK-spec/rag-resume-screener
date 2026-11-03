@@ -86,9 +86,16 @@ python data/generate_dataset.py --n 60 --seed 12
 `generate_dataset.py` documents the rubric the labels encode: each job requirement is
 `proven` (concrete evidence in a role or project), `claimed` (only in the Skills line) or
 `absent`, weighted 2 for the three core skills and 1 for the rest. Resumes vary in length
-(105-480 words), paraphrase skills instead of always naming the tool, carry irrelevant
+(105-480 words for the generated set; the three hand-written CVs are 39, 56 and 85),
+paraphrase skills instead of always naming the tool, carry irrelevant
 work text for retrieval to drop, and include personal details that the rubric ignores.
 Reproducible via the seed.
+
+`python data/check_dataset.py` verifies the corpus rather than trusting it: labels and
+files paired both ways, no duplicate texts, experience ranges ordered, and whether the
+generator in this checkout still reproduces the shipped text. Its current output
+(`data/check_dataset.log`) is 12 FAIL / 3 WARN, all of them the reversed experience
+described in Limitations.
 
 ## Run
 
@@ -97,8 +104,20 @@ streamlit run app.py        # the app
 python evaluate.py --embedder tfidf --out results.csv --dump per_resume.csv
 python sweep_floor.py --embedder tfidf --min-sim 0.08   # what each floor costs (no LLM)
 python bias_audit.py --limit 6 --embedder tfidf --model "Q4_K_M (4-bit)" --out bias_q4.csv
+python data/check_dataset.py   # dataset integrity + generator drift (no model needed)
 python tests/test_pipeline.py    # or: pytest tests -q
 ```
+
+The app's sidebar has a **Retriever** control, `TF-IDF (study headline)` (default) or
+`Dense (MiniLM)`, so a demo can reproduce the configuration behind the 0.753 rather than
+always running dense. Pick **Retrieval-only (no LLM)** in the model select to browse the
+ranking and the per-requirement evidence without loading the 1.1 GB GGUF; the GGUF is only
+read when "Screen candidates" is pressed.
+
+**Every committed measurement file - which embedder, which floor, which of them are
+duplicates or superseded - is indexed in [ARTIFACTS.md](ARTIFACTS.md).** Read it before
+quoting a number from any `results_*.csv`: four retrieval configurations are present and
+three of them disagree.
 
 ## Evaluation
 
@@ -113,6 +132,8 @@ swap in a real labelled set before drawing conclusions.
 
 All figures below are from real runs on this machine (Windows, CPU-only, Python 3.13,
 `temperature=0`, `TOP_K=3`, evidence budget 40% of the resume). Nothing here is simulated.
+Each table names the file it came from; `ARTIFACTS.md` lists all of them, including the
+superseded ones that still sit in this directory.
 
 Setup actually measured: **Qwen2.5-1.5B-Instruct Q4_K_M** (1,117 MB GGUF, llama.cpp CPU),
 run twice over the same 33 resumes - once with **TF-IDF retrieval** and once with the dense
@@ -521,6 +542,21 @@ be compared against "the score moves by this much anyway".
   95% Fisher-z interval of [0.553, 0.871] and the dense run's 0.668 of [0.421, 0.823], while
   full context's 0.262 sits below both intervals. The RAG-vs-full gap is the one comparison
   here that survives its own confidence interval; the embedder comparison does not.
+- The shipped dataset has a cosmetic text defect that is **not** in the generator any
+  more: 10 of the 30 generated resumes carry an experience range that runs backwards
+  (`Experience: BI Analyst (fintech, 2023-2022)`), because the graduation-year clamp could
+  return a start later than its own end once the role cursor stepped below graduation year.
+  `data/generate_dataset.py` now has `role_years()` and
+  `tests/test_pipeline.py::test_role_year_ranges_never_run_backwards` pins it, but the
+  resumes were **not** regenerated: that would change chunk text for 10 of 33 candidates
+  and invalidate every results CSV measured on them, and re-measuring costs ~20 minutes of
+  CPU. `python data/check_dataset.py` states this explicitly (12 FAIL / 3 WARN) and proves
+  the drift is confined to those 12 `Experience:` lines, so the corpus behind the tables is
+  the one labelled "measured on the shipped text" in `ARTIFACTS.md`.
+- A second cosmetic finding from the same checker: the two hand-written CVs are 39 and 56
+  words, under the 60-word band the evidence budget was sized for. On documents that short
+  retrieval has nothing to leave out, so RAG and full context differ only by the prompt
+  scaffolding - they are illustrations, not efficient cases.
 - The scorer is coarse: 5 distinct values per mode, 61% of candidates on one value under
   TF-IDF. Every correlation reported is a correlation between a 5-level score and a
   0-100 rubric, and `evaluate.py` flags it (`modal_share`).
@@ -553,3 +589,9 @@ The results section above records what this design did and did not establish.
 - Scores support, not replace, human decisions.
 - The retrieval-only fallback is a ranking baseline, not a calibrated scorer: its MAE
   against 0-100 labels stays large by construction.
+- `tests/test_pipeline.py` holds 25 tests and covers the mechanisms the results sections
+  argues from - the evidence budget, the relevance floor rejecting spurious passages, a
+  rejected requirement never being reported as matched, the loud embedder fallback guard,
+  the two floors being on different scales, and the degeneracy metrics that stop a
+  near-constant scorer being quoted as a correlation. It runs offline in a couple of
+  seconds: TF-IDF only, no GGUF, no GPU, no network.

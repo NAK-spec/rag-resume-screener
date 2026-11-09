@@ -168,6 +168,15 @@ still fails to separate them.
 - "The floor was re-tuned on the corrected corpus" as a change - re-deriving both grids lands
   on 0.024 and 0.24 again; the dense argmax at 0.25 is 2 requirement-matches out of 198 and
   was deliberately not chased (README, "Why the dense floor stays at 0.240").
+- Any `power_analysis.log` row with `n > 33` as the size of a *future* experiment. Those rows
+  bootstrap the same 33 real candidates - scores and labels on shared indices, so a candidate
+  stays one candidate - which measures the design's sensitivity, not a new study's result.
+- A power figure as proof an effect is absent. 15.1% and 9.6% power say the two Δrho values are
+  invisible at this n; "the embedders do not differ" is still withdrawn (see the paired entry
+  in the significance section, which is the correct form).
+- The rho ceilings (0.857 / 0.864) as a criticism of the quantized model. They come from the
+  number of distinct scores the scorer emits - 5 and 4 across 33 candidates - so they cap any
+  scorer on that output scale, including an unquantized one.
 
 ## Prompt inflation, measured without an LLM
 
@@ -213,6 +222,23 @@ committed file backed it. Re-deriving it from the git-recovered code gives 1,671
   16.55 vs 26.03, lower on 20 of 33 candidates (11 worse, 2 equal), Wilcoxon p = 0.044.
 - Full-mode coverage rho −0.267 is not significant (p = 0.129); the full-mode score rho is
   undefined, so the mode contributes no rank claim at all.
+
+## Statistical power of the design, measured without an LLM
+
+| file | what it is |
+|---|---|
+| `power_analysis.log` | `python power_analysis.py` (seed 7, 2,000 sims/cell) - the other half of the significance question: what this design *could* have detected. Gaussian-copula scorers built from each run's own score multiset, so the tie structure sits in both the null and the alternative, and rejection uses the same permutation rule as `significance.log`. **15.5 s**, verified byte-identical across two invocations. Reads the committed `per_resume_v2*.csv` by name, so it is a re-analysis, not a new measurement |
+| `power_analysis.py` | the script. Its first output line is a self-check with four parts: a 33-value pool reproduced exactly (0 damaged rows), independent latents giving rho +0.001, a monotone latent grid, and two scorers asked for the *same* rho differing by +0.001. `test_the_power_simulator_is_calibrated` pins the last two, which is what caught the two generator bugs described in the README subsection |
+
+**The five numbers it produces, and where each is quotable:**
+
+| quantity | value at n = 33 | quotable as |
+|---|---|---|
+| power against each run's own rho | 100.0% / 99.9% / **41.6%** / 99.8% | the 41.6% belongs next to the TF-IDF retrieval-only p = 0.087 |
+| smallest rho detectable at 80% power | 0.456 - 0.473 | "nothing below ~0.46 is detectable at this n" |
+| power against Δrho +0.083 (embedders) | 15.1%, 80% needs >250 | the null is *invisible*, not zero |
+| power against Δrho −0.062 (dense LLM vs baseline) | 9.6%, 80% needs >250 | same |
+| rho ceiling per scorer | 0.857 / 0.864 / 0.962 / 0.974 | output granularity caps ranking before n does |
 
 ## Scratch
 

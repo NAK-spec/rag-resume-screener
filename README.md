@@ -122,6 +122,7 @@ python evaluate.py --embedder tfidf --out results_v2.csv --dump per_resume_v2.cs
 python sweep_floor.py --embedder tfidf --min-sim 0.08   # what each floor costs (no LLM)
 python prompt_inflation.py   # the pre-dedup prompt size, measured (no LLM)
 python significance.py       # permutation p / bootstrap CI / paired tests on the rho claims (no LLM)
+python power_analysis.py     # what this design could have detected, and its rho ceiling (no LLM)
 python bias_audit.py --limit 6 --embedder tfidf --model "Q4_K_M (4-bit)" --out bias_q4.csv
 python data/check_dataset.py   # dataset integrity + generator drift (no model needed)
 python tests/test_pipeline.py    # pytest is not installed; the file is self-running
@@ -222,6 +223,7 @@ python sweep_floor.py --embedder dense --min-sim 0.30   # -> sweep_dense_fine_v2
 python bias_audit.py --limit 6 --embedder tfidf --floor 0.024 --model "Q4_K_M (4-bit)" --out bias_q4.csv
 python bias_audit.py --limit 6 --embedder tfidf --out bias_retrieval_only_control.csv
 python significance.py                                   # -> significance.log, no LLM, ~15 s
+python power_analysis.py                                 # -> power_analysis.log, no LLM, ~15 s
 ```
 
 ### RAG vs full context, same model
@@ -446,6 +448,48 @@ What a small p does *not* mean here: the labels were generated from the same rub
 pipeline encodes, so a permutation test asks "is this ordering consistent with the rubric",
 not "is this a good hiring decision". The circularity note above applies to every one of
 these numbers, and the coverage columns most of all.
+
+### What could this design have detected?
+
+A p-value says whether an effect was found. `python power_analysis.py` (no LLM, ~15 s, seed 7;
+`power_analysis.log`) asks the other half - whether the design *could* have found it - by
+simulating scorers that reproduce each run's own score multiset, so the tie structure is in
+both the null and the alternative, and by measuring rejection rates against the same
+permutation rule as `significance.py`.
+
+| question | answer at n = 33 |
+|---|---|
+| power against the rho each run actually got | 100.0% (tfidf LLM 0.753), 99.9% (dense LLM 0.670), 99.8% (dense no-LLM 0.732), **41.6% (tfidf no-LLM 0.306)** |
+| smallest true rho detectable at 80% power | **0.456 - 0.473**, depending on the run |
+| power against the embedder difference (Δrho +0.083) | **15.1%**; 80% needs **more than 250** candidates |
+| power against the dense LLM-vs-baseline difference (Δrho −0.062) | **9.6%**; 80% needs **more than 250** candidates |
+| the best rho a 4-value scorer can express at all | **0.864** (0.857 for the 5-value one, 0.974 for the 24-value baseline) |
+
+Three things follow, and they are the honest form of the limitations section:
+
+- **The non-significant baseline was the expected result, not a surprise.** With 41.6% power
+  against its own 0.306, the TF-IDF retrieval-only run had roughly a coin flip of clearing
+  p = 0.05 before it started. The correct reading of "p = 0.087" is "this design could not
+  have been expected to detect that", not "retrieval does not rank".
+- **The two null differences are not shown to be zero; they are shown to be invisible here.**
+  Under 20% power, a null at n = 33 is a statement about the instrument. Resolving a Δrho of
+  0.083 needs a few hundred candidates, and that is the cost of turning the embedder
+  comparison from "undetectable" into a claim.
+- **Resolution caps the ranking before n does.** The dense LLM emits 4 distinct scores across
+  33 candidates, and a scorer that coarse cannot exceed rho ≈ 0.86 on these labels however
+  well it is built - so part of the gap between 0.670 and a perfect ranking is quantisation of
+  the *output scale*, not of the model.
+
+The simulator validates itself two ways, and both are printed: its rho spread at n = 33
+(0.061 / 0.087 / 0.163) against the bootstrap spread `significance.py` measured on the real
+data (0.073 / 0.107 / 0.177), and the mean Δ of two scorers asked for the *same* rho, which
+must sit at zero (worst drift across the sweep: 0.014). The second check exists because the
+first version of this file got the paired generator wrong - an asymmetric correlation matrix
+is factorised from its lower triangle alone, so numpy produced a different dependence
+structure than the one asked for and reported Δ ≈ −0.3 no matter what the inputs were. A
+second bug of the same family, re-measuring each rho on its own bootstrap resample, made the
+power column jump between 7% and 88% while measuring nothing. Both are now pinned by
+`test_the_power_simulator_is_calibrated`, and the sweep holds the effect size fixed.
 
 
 ### Run-to-run determinism
@@ -772,6 +816,16 @@ be compared against "the score moves by this much anyway".
   shuffle (p = 0.087), and the dense-vs-TF-IDF MAE gap is not resolvable either (Wilcoxon
   p = 0.176, 11-7-15 by candidate). Both RAG LLM headlines are solid (p <= 1.0e-04), and so is
   the TF-IDF LLM's margin over its own no-LLM scorer.
+- **What n = 33 could have detected is now measured, not asserted** (`power_analysis.py`,
+  `power_analysis.log`). The design had **41.6% power** against the TF-IDF retrieval-only 0.306
+  it reports as non-significant, so that null is the expected outcome of this instrument rather
+  than evidence about retrieval; at 80% power, **no rho below ~0.46 is detectable at all** at
+  this candidate count. Both null differences are likewise invisible rather than zero: power
+  against Δrho +0.083 (embedders) is **15.1%** and against Δrho −0.062 (dense LLM vs its own
+  baseline) **9.6%**, and 80% power against either needs **more than 250 candidates**. Every
+  scorer also has a hard ceiling from its own output granularity - 0.864 for the 4-value dense
+  LLM, 0.857 for the 5-value TF-IDF one - so part of the distance from 0.670 to a perfect
+  ranking is the score scale, not the model.
 - Labels are synthetic and rubric-derived, so agreement measures whether the pipeline
   reproduces a stated rubric, not real hiring judgement. n = 33 is small; rho 0.753 has a
   95% Fisher-z interval of [0.553, 0.871] and the dense run's 0.670 of [0.424, 0.824].

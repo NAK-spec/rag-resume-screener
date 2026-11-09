@@ -154,10 +154,11 @@ Each table names the file it came from; `ARTIFACTS.md` lists all of them, includ
 superseded ones that still sit in this directory.
 
 Setup actually measured: **Qwen2.5-1.5B-Instruct Q4_K_M** (1,117 MB GGUF, llama.cpp CPU),
-run as three separate LLM processes over the same 33 corrected resumes - twice with
-**TF-IDF retrieval** (the second as an independent reproduction) and once with the dense
-**`all-MiniLM-L6-v2`** embedder (torch 2.15.0+cpu). Each embedder uses its own similarity
-floor, swept with `sweep_floor.py` (`rag/config.py`: `{"tfidf": 0.024, "dense": 0.24}`), and
+run as four separate LLM processes over the same 33 corrected resumes - twice with
+**TF-IDF retrieval** and twice with the dense **`all-MiniLM-L6-v2`** embedder (torch
+2.15.0+cpu), each pair the second run being an independent reproduction. Each embedder uses
+its own similarity floor,
+swept with `sweep_floor.py` (`rag/config.py`: `{"tfidf": 0.024, "dense": 0.24}`), and
 the runs are pinned with `--embedder` so a silent fallback cannot pass one run off as the
 other. n = 33 resumes, 111 chunks, 6 requirements.
 
@@ -166,7 +167,8 @@ lines were repaired and the study re-measured): the headline is
 **`results_v2.csv` + `results_v2_repeat.csv`** and `per_resume_v2*.csv` - two separate
 processes whose 33 RAG scores and 33 matched-lists agree exactly, so the 0.753 is now a
 reproduced number rather than a single run - with **`results_v2_dense.csv`** as the dense
-counterpart on the same corrected corpus. The pre-correction equivalents
+counterpart on the same corrected corpus (now also paired with
+`results_v2_dense_repeat.csv`, see below). The pre-correction equivalents
 (`results.csv` / `per_resume.csv`, byte-identical to `results_floor024.csv`, i.e. **one**
 process) are kept because they are what produced the earlier draft of these tables and they
 let the correction be measured rather than assumed: they differ from `results_v2.csv` by
@@ -184,6 +186,15 @@ the time (0.024 / 0.030 for the two named above).
 (`bias_results.csv` is an earlier no-LLM prototype run; it predates every fix below and
 should not be quoted.)
 
+Every headline ranking number now comes from a *pair* of independent processes:
+`results_v2.csv` / `results_v2_repeat.csv` (TF-IDF) and `results_v2_dense.csv` /
+`results_v2_dense_repeat.csv` (dense). Each pair agrees on all 66 per-resume rows - score,
+coverage, matched/missing lists, passage count, prompt and output length - so 0.753 and 0.670
+are reproduced numbers rather than single runs. The dense repeat's *timing* columns are
+unusable and excluded from every table: this laptop suspended partway through that run, and
+one full-mode generation is stamped 421,575 s (4.9 days) because the clock kept running while
+the CPU did not. See Determinism and reproducibility.
+
 Reproduce with `.\run_study.ps1` (fast stages only), `.\run_study.ps1 -WithModel -Repeat 2`
 for the evaluation pair, `-WithModel -WithDense` for the dense run, `-WithModel -WithBias`
 for the audit. `-WithDense`/`-WithBias` without `-WithModel` is an error rather than a silent
@@ -198,6 +209,7 @@ not an untested script. The equivalent commands:
 python evaluate.py --embedder tfidf --out results_v2.csv --dump per_resume_v2.csv
 python evaluate.py --embedder tfidf --out results_v2_repeat.csv --dump per_resume_v2_repeat.csv
 python evaluate.py --embedder dense --out results_v2_dense.csv --dump per_resume_v2_dense.csv
+python evaluate.py --embedder dense --out results_v2_dense_repeat.csv --dump per_resume_v2_dense_repeat.csv
 python evaluate.py --fallback --embedder tfidf --variant "Retrieval-only (no LLM)" --out results_v2_fallback.csv
 python sweep_floor.py --embedder tfidf --min-sim 0.08   # -> sweep_tfidf_v2.log, no LLM
 python sweep_floor.py --embedder dense --min-sim 0.50   # -> sweep_dense_v2.log, no LLM
@@ -230,6 +242,8 @@ still quotable (31.2 vs 23.9).
   prompt medians (177 vs 297), and one full-context score of 85 for all 33 candidates in
   both embedders - as it must be, since `full` mode never reads retrieval. What the embedder
   changes is the *quality* column, not the compression (see the TF-IDF-vs-dense section).
+  The same figures come back byte-for-byte in the second dense process, so the -41.5% is
+  measured four times over: twice per embedder.
 - **Where it does not hold**: the 3 resumes where RAG is longer are exactly the 3 under
   90 words (`per_resume_v2.csv`: 39, 56 and 85 words), each by a constant 21 words - that is
   the requirement-to-passage mapping, and when a resume already fits in one chunk there is
@@ -252,7 +266,9 @@ still quotable (31.2 vs 23.9).
 
 `all-MiniLM-L6-v2` at its own swept floor (0.24) against TF-IDF at 0.024, same GGUF, same
 33 corrected resumes, same 6 requirements, `temperature=0` (`results_v2.csv` vs
-`results_v2_dense.csv`):
+`results_v2_dense.csv` - and neither row is a single process any more:
+`results_v2_repeat.csv` and `results_v2_dense_repeat.csv` each reproduce their partner on all
+66 per-resume rows):
 
 | embedder | Spearman | Kendall | MAE | within ±10 | signed score offset | mean abs gap to own coverage | prompt words | peak RSS |
 |---|---|---|---|---|---|---|---|---|
@@ -396,9 +412,21 @@ now backed by the reproduction rather than by an argument:
   score (85) for all 33 candidates in `full` mode, and the two runs' `full` rows agree on
   every quality figure - MAE 31.24, within-10 0.273, cov-rho -0.267, cov-MAE 57.27, 304 prompt
   words. Pre-correction the same held (`per_resume.csv` vs `per_resume_dense.csv`).
-- **The dense run is a third, independent process** and lands where the pre-correction dense
-  run landed (0.668 -> 0.670 rho, 16.58 -> 16.55 MAE) after exactly one score moved, so the
-  embedder comparison does not rest on a single lucky process.
+- **The dense side is now a pair of its own** (`results_v2_dense.csv`,
+  `results_v2_dense_repeat.csv`): all 66 rows agree on score, coverage, matched/missing,
+  passage count, prompt words and output words, so 0.670 / 0.576 / 16.55 and the
+  one-distinct-value `full` row are each measured twice. It also lands where the
+  pre-correction dense run landed (0.668 -> 0.670 rho, 16.58 -> 16.55 MAE) after exactly one
+  score moved, so the embedder comparison rests on reproduced numbers on both sides.
+- **A repeat run can still be unusable, and this one nearly was.** The dense repeat's
+  per-candidate `latency_s` is meaningless: the laptop suspended partway through, and one
+  `full` generation is stamped 421,575 s - 4.9 days of wall clock, most of it asleep - which
+  drags that mode's mean to 12,813 s and the RAG mean to 21.2 s against its own 13.7 s median
+  (first run: 12.6 s mean, 12.5 s median). Greedy decoding kept the quality columns exact
+  while the timing columns were destroyed, which is why `ARTIFACTS.md` marks the repeat's
+  timing not merely non-comparable but void, and why the quotable dense latencies stay
+  12.6 / 20.0 s from the first process. Peak RSS survived untouched (2,462 / 2,479 MB vs
+  2,463 / 2,487 MB).
 
 **Latency is only comparable inside one process.** The tfidf pair above moved 13.33 -> 12.85 s
 between two runs of the *same* configuration on the *same* corpus, and the dense RAG mean moved
@@ -636,13 +664,14 @@ be compared against "the score moves by this much anyway".
   quantization-efficiency curve; those variants are skipped rather than faked. The title's
   "quantized LLM" half is therefore a single point on the size/accuracy curve, not a curve.
 - Both embedders were measured (TF-IDF and `all-MiniLM-L6-v2`), each at its own swept floor,
-  on the corrected corpus. The **TF-IDF headline is two independent processes that agree
-  exactly** (`results_v2` and `results_v2_repeat`, all 33 scores and matched-lists identical).
-  The dense side is **one process per corpus** - `results_dense.csv` (0.668) and
-  `results_v2_dense.csv` (0.670) are separate runs, but on *different* text, so they agree
-  without being a replicate in the strict sense. A dense run has yet to be repeated twice on
-  one corpus. Either way the 0.753-vs-0.670 ordering sits inside the noise at n = 33 and
-  should not be claimed in either direction.
+  on the corrected corpus, and **each headline number is now two independent processes that
+  agree exactly**: `results_v2` / `results_v2_repeat` (TF-IDF) and `results_v2_dense` /
+  `results_v2_dense_repeat` (dense), 66 of 66 rows identical on every quality column. What
+  that proves is *reproducibility* - no process-level nondeterminism in the retrieval, prompt
+  build or greedy decode - not precision: `temperature=0` makes a second run of the same
+  input a foregone conclusion, so the repeats add no sampling information and leave every
+  Fisher-z interval, and the 0.753-vs-0.670 ordering, exactly as wide as they were with one
+  process. The ordering still should not be claimed in either direction.
 - Labels are synthetic and rubric-derived, so agreement measures whether the pipeline
   reproduces a stated rubric, not real hiring judgement. n = 33 is small; rho 0.753 has a
   95% Fisher-z interval of [0.553, 0.871] and the dense run's 0.670 of [0.424, 0.824].

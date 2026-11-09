@@ -6,6 +6,7 @@
     .\run_study.ps1 -WithModel       # + the Q4_K_M evaluation (~20 min CPU per run)
     .\run_study.ps1 -WithModel -Repeat 2   # ...twice, so the headline is a pair
     .\run_study.ps1 -WithModel -WithDense  # + the dense-embedder run (~20 min CPU)
+    .\run_study.ps1 -WithModel -WithDense -Repeat 2  # the committed artifact set: 2 tfidf + 2 dense
     .\run_study.ps1 -WithModel -WithBias   # + the fairness audit (~26 min CPU, 114 screenings)
 
     CPU cost is the reason for the switches: this machine has no GPU, N_THREADS=4, and each
@@ -101,14 +102,18 @@ for ($i = 1; $i -le $Repeat; $i++) {
 }
 
 if ($WithDense) {
-    # One dense process, not two: it is the embedder comparison, and at n = 33 the ranking
-    # gap to tfidf is inside the Fisher-z interval either way, so a repeat of this row buys
-    # a latency sample rather than a claim.
-    Step "Q4_K_M evaluation (dense, floor 0.24, rag + full over 33 resumes)" {
-        & $py evaluate.py --embedder dense --floor 0.24 `
-            --out "$OutPrefix`_results_dense.csv" --dump "$OutPrefix`_per_resume_dense.csv" 2>&1 |
-            Tee-Object "$OutPrefix`_eval_dense.log"
-    } "~20 min CPU"
+    # Repeatable for the same reason as tfidf: the committed dense row is a pair
+    # (results_v2_dense.csv + results_v2_dense_repeat.csv), and a second process is what shows
+    # the 0.670 is not one lucky run. It buys reproducibility, not precision - temperature is
+    # 0, so the quality columns come back identical and only the timings move.
+    for ($i = 1; $i -le $Repeat; $i++) {
+        $tag = if ($Repeat -gt 1) { "$i" } else { "" }
+        Step "Q4_K_M evaluation #$i (dense, floor 0.24, rag + full over 33 resumes)" {
+            & $py evaluate.py --embedder dense --floor 0.24 `
+                --out "$OutPrefix`_results_dense$tag.csv" --dump "$OutPrefix`_per_resume_dense$tag.csv" 2>&1 |
+                Tee-Object "$OutPrefix`_eval_dense$tag.log"
+        } "~20 min CPU"
+    }
 }
 
 if ($WithBias) {

@@ -17,9 +17,11 @@ below is tagged with which corpus it was measured on:
 | pre | superseded corpus | everything without `_v2`; `check_dataset.log` at git `b043eb8` reported 12 FAIL / 3 WARN |
 
 **The headline is the v2 pair (`results_v2.csv` + `results_v2_repeat.csv`), not `results.csv`.**
-The two files carry the same quality numbers - 0 of 33 RAG scores moved - which is the point:
+The dense side is a pair too (`results_v2_dense.csv` + `results_v2_dense_repeat.csv`), so all
+four corrected-corpus LLM files are two reproductions of two configurations. Each pair carries
+identical quality numbers - 0 of 66 per-resume rows differ in either pair - which is the point:
 the corpus defect was cosmetic for retrieval, and its one real effect was to *hide* how
-degenerate the full-context baseline is (2 distinct scores became 1). Read the pair as one
+degenerate the full-context baseline is (2 distinct scores became 1). Read each pair as one
 reproduced result, and read `results.csv` as its audit trail.
 
 ## How to read a run
@@ -45,6 +47,8 @@ reproduced result, and read `results.csv` as its audit trail.
 | `per_resume_v2_fallback.csv` | tfidf | 0.024 | retrieval-only | - | - | per-candidate fallback rows (12 distinct scores, modal share 0.303 - it is coarse but not degenerate) |
 | `results_v2_dense.csv` | dense | 0.24 | Q4_K_M | 0.670 | 16.55 | **dense headline on the corrected corpus**, backed by `eval_v2_dense.log` (`embedder: dense \| sim_floor: 0.24`). `modal_share` 0.576 (19 of 33 on 80), 4 distinct scores |
 | `per_resume_v2_dense.csv` | dense | 0.24 | Q4_K_M | - | - | its per-candidate rows; also the file that shows `full` mode scoring 85 for all 33 candidates under *both* embedders |
+| `results_v2_dense_repeat.csv` | dense | 0.24 | Q4_K_M | 0.670 | 16.55 | **independent second dense process**, backed by `eval_v2_dense_repeat.log`. Quality columns identical to the row above in both modes; **its `avg_latency_s` (21.2 rag / 12,812.7 full) and `model_load_s` (9.91) are void - do not quote them.** See "Latency is not comparable across files" |
+| `per_resume_v2_dense_repeat.csv` | dense | 0.24 | Q4_K_M | - | - | 66 rows, 0 differing from `per_resume_v2_dense.csv` on score, coverage, `matched`, `missing`, passages, prompt words or output words. One row is stamped 421,575 s of latency (the laptop suspended mid-run); every other column is fine |
 
 **Superseded corpus - retained so the correction is checkable, not because they are quotable.**
 
@@ -64,9 +68,10 @@ reproduced result, and read `results.csv` as its audit trail.
 The `full` rows of the pre-correction tfidf files all report rho 0.262 / MAE 30.48. That is
 not a copy-paste error: `mode="full"` never looks at retrieved evidence, so with
 `temperature=0` the same scores come out of any floor. They differ in `peak_rss_mb` only.
-On the **corrected** corpus all four `full` rows (`results_v2.csv`, `results_v2_repeat.csv`,
-`results_v2_dense.csv` and the tfidf/dense pair before them) report **empty** rho and
-`modal_share` 1.0 - all 33 candidates score 85 - which is the finding, not a regression.
+On the **corrected** corpus every `full` row of the four LLM files (`results_v2.csv`,
+`results_v2_repeat.csv`, `results_v2_dense.csv`, `results_v2_dense_repeat.csv`) reports
+**empty** rho and `modal_share` 1.0 - all 33 candidates score 85 - which is the finding, not a
+regression.
 
 ### Latency is not comparable across files
 
@@ -76,8 +81,15 @@ with host state while quality columns do not. Measured on this corpus:
 | comparison | same config? | latency | output length | verdict |
 |---|---|---|---|---|
 | `results_v2.csv` vs `results_v2_repeat.csv` (rag) | yes | 13.33 -> 12.85 s | identical | ~4% host noise - the reproduction |
+| `results_v2_dense.csv` vs `results_v2_dense_repeat.csv` (rag) | yes | 12.64 -> 21.22 s mean, 12.47 -> 13.68 s **median** | identical | void, not noise: the laptop suspended inside this run. The median moved ~1 s; the mean is dragged by rows that straddled the sleep. Quote the median or nothing |
 | `results_dense.csv` vs `results_v2_dense.csv` (rag) | different corpus | 16.19 -> 12.64 s | 90.8 -> 88.1 words | all 33 candidates faster; host state, not content |
 | rag vs full *inside* any one file | - | -34% to -37% | - | **the only latency claim worth quoting** |
+
+The dense repeat is the cautionary case for the whole index: a run that is *perfect* on every
+quality column and *unusable* on every timing column, because suspend/resume counts as elapsed
+time. `per_resume_v2_dense_repeat.csv` has one row at 421,575 s (4.9 days, a `full` generation
+that spans the sleep) and a `full`-mode mean of 12,812.7 s against a 27.4 s median. Greedy
+decoding cannot be hurt by a sleep; `time.time()` can.
 
 RSS is the exception: 2,079 / 2,119 / 2,463 / 2,487 MB are stable enough between processes to
 compare, because the number is dominated by loaded weights rather than by CPU contention.
@@ -132,8 +144,13 @@ still fails to separate them.
   numbers, different corpus, and they are one process between them, not two.
 - `bias_results.csv` - pre-placebo.
 - Any rho from a `full` row on the corrected corpus - there is none; the mode emits one value.
-- Any ordering of the two embedders from 0.753 vs 0.668 - the Fisher-z intervals at n = 33
-  overlap almost completely ([0.553, 0.871] vs [0.421, 0.823]).
+- Any ordering of the two embedders from 0.753 vs 0.670 - the Fisher-z intervals at n = 33
+  overlap almost completely ([0.553, 0.871] vs [0.424, 0.824]), and the second process on each
+  side changes that: identical repeats under `temperature=0` demonstrate reproducibility, not
+  precision, so no interval narrows.
+- `avg_latency_s`, `avg_tok_per_s` or `model_load_s` from `results_v2_dense_repeat.csv` - that
+  process spanned a laptop suspend, which inflates elapsed time without changing a token. Use
+  the medians, or the first dense run.
 - "The floor was re-tuned on the corrected corpus" as a change - re-deriving both grids lands
   on 0.024 and 0.24 again; the dense argmax at 0.25 is 2 requirement-matches out of 198 and
   was deliberately not chased (README, "Why the dense floor stays at 0.240").

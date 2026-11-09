@@ -124,6 +124,7 @@ python prompt_inflation.py   # the pre-dedup prompt size, measured (no LLM)
 python significance.py       # permutation p / bootstrap CI / paired tests on the rho claims (no LLM)
 python power_analysis.py     # what this design could have detected, and its rho ceiling (no LLM)
 python retrieval_quality.py  # what the retriever actually delivers, vs the generator's record (no LLM)
+python geometry_sweep.py     # the chunk/budget/top-k frontier: cost against score ceiling (no LLM)
 python bias_audit.py --limit 6 --embedder tfidf --model "Q4_K_M (4-bit)" --out bias_q4.csv
 python data/check_dataset.py   # dataset integrity + generator drift (no model needed)
 python tests/test_pipeline.py    # pytest is not installed; the file is self-running
@@ -226,6 +227,7 @@ python bias_audit.py --limit 6 --embedder tfidf --out bias_retrieval_only_contro
 python significance.py                                   # -> significance.log, no LLM, ~15 s
 python power_analysis.py                                 # -> power_analysis.log, no LLM, ~15 s
 python retrieval_quality.py                              # -> retrieval_quality.log, no LLM, ~25 s
+python geometry_sweep.py                                 # -> geometry_sweep.log, no LLM, ~1 min
 ```
 
 ### RAG vs full context, same model
@@ -793,8 +795,78 @@ n = 30 generated CVs: 217 evidence bullets over 86 proven skill-instances, 227 f
 For the thesis, this is the section that says where the headroom is: under a one-passage budget
 the retriever delivers a quarter of the proof, the quantized scorer ranks at the ceiling that
 proof allows (+0.011 of rho below it), and its citations exceed its evidence on four CVs in five.
-The fix the numbers point at is the chunk/budget geometry, not the model - and the honest cost of
-that fix is in the last bullet.
+The fix the numbers point at is the chunk/budget geometry, not the model - and the section after
+this one measures that geometry as a curve, with the price of each dial on it.
+
+### The geometry frontier: what the delivery cost is a function of (no LLM)
+
+`retrieval_quality.log` measures two points on the evidence curve - the shipped block and the
+uncapped one - and the recommendation it supports is a change of geometry. `python
+geometry_sweep.py` (`geometry_sweep.log`, ~1 min, no GGUF) measures the curve instead: **one
+factor at a time** across six chunkings, seven word budgets and five top-k depths - 18 cells per
+embedder, 16 of them distinct since the shipped point appears on all three axes - each scored on
+cost (pasted words, **real prompt length** from `build_prompt`), delivery (proven bullets arriving
+whole, requirements printed `none`) and the score ceiling the delivered block allows. The six
+chunkings are measured twice, at the committed floor and again at floor 0, so that a threshold
+fitted at 90/20 cannot be the hidden cause of a row at 400/0.
+
+Its shipped cell is not a new measurement: it reproduces `retrieval_quality.log` exactly (25.3%
+whole, 43/86 requirement instances, 3.80 `none`, 2,067 pasted words for TF-IDF; 34.1%, 51/86,
+2.27, 2,311 for dense) and matches `per_resume_v2.csv` / `per_resume_v2_dense.csv` on
+`prompt_words` and `passages` for **30/30 CVs each**, so the other cells are the same currency
+with one dial moved. Indexing keeps the committed shape too - all 33 CVs, 111 chunks - because
+the TF-IDF vocabulary, and therefore top-k selection, depends on it.
+
+The frontier, at each embedder's shipped floor (prompt words are the mean over the 30 provenance
+CVs, so they sit 1.0 (tfidf) / 2.9 (dense) words above the 33-resume means in
+`per_resume_v2*.csv`; the shipped rows below are those 30-CV means and match the dumps CV by CV):
+
+| cell | passages | prompt words | proof delivered whole | ceiling rho | ceiling MAE |
+|---|---|---|---|---|---|
+| tfidf 90/20, k3, budget fn **(shipped)** | 1.03 | 173.4 | 25.3% | **+0.732** | 16.03 |
+| tfidf chunk 45/10 | 2.27 | 196.1 | 24.0% | **+0.916** | 12.63 |
+| tfidf budget 180 | 1.87 | 246.8 | 48.8% | **+0.950** | 6.27 |
+| tfidf budget 240 | 2.27 | 280.4 | 60.4% | **+0.971** | 4.27 |
+| dense 90/20, k3, budget fn **(shipped)** | 1.13 | 181.0 | 34.1% | **+0.804** | 11.00 |
+| dense chunk 45/10 | 2.43 | 205.5 | 37.3% | **+0.889** | 9.13 |
+| dense chunk 150/30 | 1.00 | 209.4 | 45.6% | **+0.903** | 6.40 |
+| dense budget 180 | 2.00 | 257.7 | 55.3% | **+0.980** | 4.40 |
+| one chunk per CV, floor 0 (reference) | 1.00 | 341.6 | 100.0% | +1.000 | 0.00 |
+
+Four things the curve says that the two-point version could not:
+
+- **Top-k is not a lever at this budget.** From 1 to 8 the block is the same block: 68.9 pasted
+  words and 25.3% of the proof for tfidf, 77.0 and 34.1% for dense, with 1.03 / 1.13 passages kept
+  whichever way the candidates were ranked - so the ceiling moves by **0.000** of rho and the
+  prompt by **0.1** words (tfidf) / **0.4** (dense). The one column that does respond is the
+  `none` marker count: 4.03 → 3.77 per CV on tfidf and 3.33 → 2.23 on dense, i.e. searching more
+  candidates declares fewer requirements unevidenced without adding a word of evidence. What
+  limits the shipped run is the word budget, not `TOP_K = 3` - though the model was only ever
+  scored at 3, so that is a statement about the block, not a re-measured 0.753.
+- **The knee is in the chunking, not the budget.** The cheapest cell that reaches ceiling rho
+  0.90 is a geometry at **196 words** (tfidf 45/10) / **209 words** (dense 150/30); reaching 0.90
+  by widening the budget instead costs **247** / **258** words. 45/10 buys **+0.184** of ceiling
+  for **+13.1%** prompt on tfidf, **+0.084** for **+13.6%** on dense.
+- **Composition beats volume, which the recall column alone hides.** At 45/10 the tfidf block
+  delivers *less* proof whole (24.0% against 25.3%) and covers one more of the 86 proven
+  skill-instances (44 against 43), yet ranks 0.184 of rho better - because it is 2.27 passages
+  spread across the requirements rather than 1.03 concentrated in one. A recall number by itself
+  would have called this change a loss.
+- **The floor is a claim device at every geometry, not a tuning artifact of 90/20.** Sweeping the
+  chunkings against floor 0: at the shipped 90/20 the floor costs **0.5** points of delivered
+  proof on tfidf and **0.0** on dense, while the requirements printed `none` rise **2.63-3.97**
+  (tfidf) / **1.40-2.77** (dense) per CV - it changes what the prompt claims, not what it holds.
+  Its largest cost anywhere in the grid is **10.1** points, at one chunk per CV, the one geometry
+  where a single coarse window can fail every requirement at once and leave **5 of 30 CVs with no
+  passage at all**; dense shows no such cost at any chunking, because its floor never removed a
+  word of text there either.
+
+What this does **not** license: no model was run at any of these cells, so every rho here is the
+ceiling the delivered evidence allows - it bounds a perfect reader and is not a score the
+pipeline got. The floors were swept at 90/20 only (`sweep_floor.py`), which is why each chunking
+also appears at floor 0 in the log; a knee found on a floored row is a suggestion, not a tuning.
+And the reference row reaches 1.000 by construction: pasting the whole document is the baseline
+RAG exists to beat on prompt length, not a candidate configuration.
 
 ### Fairness audit (6 base resumes x 19 variants = 114 screenings, 108 comparisons)
 
@@ -929,10 +1001,13 @@ be compared against "the score moves by this much anyway".
   CV's proof, and the quantized model ranks *at* the ceiling that proof allows - 0.721 measured
   against 0.732 achievable on the same 30 CVs, with the other 0.268 of rho belonging to the
   evidence block. The fix that points at is the chunk/budget geometry, not the quantization, and
-  `retrieval_quality.log` prices it: removing the word cap lifts the ceiling to 0.975 / 1.000 at
-  0.81 / 0.95 of the document pasted, i.e. the compression that makes this "RAG" is what removes
-  the evidence. **This was not run as an experiment** - no model was scored at the uncapped
-  budget, so the 0.975 is a ceiling, not a result.
+  `retrieval_quality.log` prices one version of it: removing the word cap lifts the ceiling to
+  0.975 / 1.000 at 0.81 / 0.95 of the document pasted, i.e. the compression that makes this "RAG"
+  is what removes the evidence. `geometry_sweep.log` measures the whole curve - 18 cells per
+  embedder across chunking, budget and top-k - and moves the recommendation: the knee is in the
+  chunking (45/10 reaches ceiling 0.916 at 196 prompt words, +13.1%, while 0.90 by budget alone
+  costs 247), top-k is inert at this budget (1 → 8 moves the ceiling by 0.000), and **no model was
+  scored at any of these cells**, so every one of those numbers is a ceiling, not a result.
 - The dataset's text defect is **fixed and re-measured, and the fix was cosmetic** - which is
   now a measurement rather than an assumption. 10 of the 30 generated resumes had experience
   ranges running backwards (`Experience: BI Analyst (fintech, 2023-2022)`) because the

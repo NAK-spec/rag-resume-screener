@@ -193,6 +193,19 @@ still fails to separate them.
   the left-to-right span of the floor curve in README ("The relevance floor is what made RAG
   work"), measured there, not here. Equally, do not read the floor's rho gain as evidence it
   *found* more proof - on tfidf recall moves 0.5 of a percentage point.
+- Any rho in `geometry_sweep.log` as a model score. No model ran at any of those cells; each rho
+  is the ceiling the delivered block allows, which bounds a perfect reader. "chunk 45/10 scores
+  0.916" is false - it *permits* 0.916.
+- The 45/10 / 150/30 rows as tuned configurations. `SIM_FLOOR` was swept at 90/20 only, so those
+  rows compare a geometry against a threshold it was never fitted to; the log repeats every
+  chunking at floor 0 for exactly this reason, and the knee survives there too (45/10: +0.914 at
+  204.6 prompt words). Quote it as the cheapest measured next experiment, not as the new default.
+- "Top-k does not matter" from section 3. It does not move the ceiling **while the word budget
+  keeps one passage per CV**; that is a statement about this budget, and the same table shows the
+  budget lifting the ceiling from 0.732 to 0.975 on the same retriever.
+- The reference row (one chunk per CV at floor 0: 100% delivered, ceiling +1.000) as a
+  configuration. It is the whole document pasted, which is the baseline RAG exists to beat on
+  prompt length, and its ceiling is 1.000 by construction.
 
 ## Prompt inflation, measured without an LLM
 
@@ -273,6 +286,23 @@ committed file backed it. Re-deriving it from the git-recovered code gives 1,671
 | requirements marked `none` per CV | 3.80 tfidf / 2.27 dense (0.37 / 0.30 with the floor off) | what the floor actually changes: the prompt's claim about its own coverage |
 | score ceiling | 0.732 / 0.804 shipped, 0.975 / 1.000 uncapped, 1.000 full | the rubric applied to what arrived - bounds *any* reader of that block |
 | shortfall split (rho) | tfidf 0.268 evidence + 0.011 model; dense 0.196 + 0.157 | retrieval is the binding constraint on tfidf, and the only place either side has headroom |
+
+## Retrieval geometry, measured without an LLM
+
+| file | what it is |
+|---|---|
+| `geometry_sweep.log` | `python geometry_sweep.py` - the frontier the two-point delivery measurement implies: **one factor at a time** across 6 chunkings, 7 word budgets and 5 top-k depths (**18 cells per embedder at its shipped floor, 24 including the floor-0 repeats**), each priced in pasted words and **real prompt length** (`build_prompt`) and scored on delivered proof and the rubric ceiling that proof allows, plus the sorted frontier and the cheapest cell reaching ceiling 0.90 per axis. ~1 min (measured **57 s** cold and **77 s** warm), loads torch for the dense side, no GGUF; determinism verified directly - two invocations were **byte-identical** to each other and to this committed file (**194 lines, 18,437 bytes**), and the count is 18 rows of which **16 are distinct configurations** (the shipped point appears on all three axes). Sections 1-4 per embedder, 5-7 the frontier and its reading. Run it as `python geometry_sweep.py > geometry_sweep.log`, not `2>&1`: the dense side's `Loading weights` bars and the HFHub warning belong to stderr |
+| `geometry_sweep.py` | the script. Four hard-failing self-checks per embedder: filtering the un-floored top-k at the floor equals `index.search` on 36/36 requirement queries; the index holds 111 chunks over all 33 CVs (the committed vocabulary, which is what makes TF-IDF top-k comparable at all); one chunk per CV at floor 0 delivers 100% of the bullets at exactly 1.00 of the document words; and the shipped cell reproduces `retrieval_quality.log` plus the `prompt_words` / `passages` columns of `per_resume_v2*.csv` on 30/30 CVs. Geometry changes are rebuilt one at a time because `Embedder.fit` re-fits the shared vectorizer in place and would silently invalidate the previous index |
+
+**The five numbers it produces, and where each is quotable:**
+
+| quantity | value | quotable as |
+|---|---|---|
+| top-k sensitivity at the shipped budget | 1 → 8: ceiling rho moves 0.000, prompt 0.1 (tfidf) / 0.4 (dense) words, pasted words identical (68.9 / 77.0) | the word budget, not retrieval depth, decides the block - the only column that moves is the `none` count (4.03 → 3.77 / 3.33 → 2.23), and the model was never scored at k ≠ 3 |
+| cheapest cell reaching ceiling rho >= 0.90 | chunk 45/10 at 196 words (tfidf) / chunk 150/30 at 209 (dense); by budget alone 247 / 258 | the knee is in the chunking, and it is ~13% more prompt |
+| 45/10 against shipped | +0.184 ceiling rho for +22.7 prompt words (tfidf), +0.084 for +24.6 (dense) | the cheapest next experiment, priced - a rerun at 45/10, not a new model |
+| composition vs volume | 45/10 delivers 24.0% whole against shipped 25.3%, 44 of 86 skill-instances against 43, and ranks 0.184 of rho better | recall percentage is not the delivery metric; passage spread across requirements is |
+| floor cost across the 6 chunkings | 0.5 pts of proof at shipped 90/20 (tfidf) / 0.0 (dense); worst anywhere **10.1** pts, at one chunk per CV, where `none` rises to 3.97/CV and **5 of 30 CVs get no passage at all** | the floor is claim discipline at every geometry; only the degenerate one lets it starve a CV outright |
 
 ## Scratch
 

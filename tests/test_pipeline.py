@@ -450,6 +450,36 @@ def test_role_year_ranges_never_run_backwards():
                 cursor, previous_start = start - 1, start
 
 
+def test_the_geometry_sweep_reads_a_chunks_position_from_the_same_step_as_chunk_text():
+    """geometry_sweep.py does not re-find a chunk inside the document: it derives the chunk's
+    word span as `idx * (size - overlap)`, and every recall figure in `geometry_sweep.log` is
+    computed from those spans. The derivation is only honest while `chunk_text` uses the same
+    step, starts chunk i at i*step, and leaves no gap between consecutive windows - so pin all
+    three over the geometries that sweep walks, including the ones whose overlap is larger than
+    half the window and the one-chunk-per-CV reference row."""
+    import geometry_sweep as gs
+
+    docs = {"a": clean(JD + " " + " ".join(f"w{i}" for i in range(200))),
+            "b": clean("one two three"),
+            "c": clean(" ".join("xyzw" for _ in range(90)))}
+    gs.KINDS["tfidf"] = {"embedder": Embedder(prefer_dense=False), "jd": JD,
+                         "reqs": split_requirements(JD)}
+    for label, size, overlap in gs.GEOMETRIES:
+        geo = gs.build_geometry("tfidf", docs, size, overlap)
+        for rid, text in docs.items():
+            words = text.split()
+            spans = sorted(geo.spans[rid].items())
+            assert spans, f"{label}: {rid} chunked to nothing"
+            for idx, (lo, hi) in spans:
+                mine = [c for c in geo.index.chunks if c.resume_id == rid and c.idx == idx]
+                assert len(mine) == 1, f"{label}: {rid}#{idx} is not one chunk"
+                assert " ".join(words[lo:hi]) == mine[0].text, (label, rid, idx)
+            windows = sorted(geo.spans[rid].values())
+            assert windows[0][0] == 0 and windows[-1][1] == len(words), (label, rid, windows)
+            assert all(b[0] <= a[1] for a, b in zip(windows, windows[1:])), \
+                f"{label}: {rid} has a gap"
+
+
 def main():
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]

@@ -221,7 +221,7 @@ python bias_audit.py --limit 6 --embedder tfidf --out bias_retrieval_only_contro
 ### RAG vs full context, same model
 
 TF-IDF retrieval, floor 0.024, on the corrected corpus (`results_v2.csv`, reproduced
-byte-for-byte by `results_v2_repeat.csv`):
+reproduced row-for-row on every quality column by `results_v2_repeat.csv`):
 
 | mode | Spearman | Kendall | MAE | within ±10 | latency | tok/s | prompt words |
 |---|---|---|---|---|---|---|---|
@@ -242,7 +242,7 @@ still quotable (31.2 vs 23.9).
   prompt medians (177 vs 297), and one full-context score of 85 for all 33 candidates in
   both embedders - as it must be, since `full` mode never reads retrieval. What the embedder
   changes is the *quality* column, not the compression (see the TF-IDF-vs-dense section).
-  The same figures come back byte-for-byte in the second dense process, so the -41.5% is
+  The same figures come back unchanged in the second dense process, so the -41.5% is
   measured four times over: twice per embedder.
 - **Where it does not hold**: the 3 resumes where RAG is longer are exactly the 3 under
   90 words (`per_resume_v2.csv`: 39, 56 and 85 words), each by a constant 21 words - that is

@@ -1,0 +1,3 @@
+model,variant,mode,embedder,n,spearman,kendall,n_distinct_scores,modal_share,mae,within_10,cov_spearman,cov_mae,cov_within_10,avg_latency_s,avg_tok_per_s,model_load_s,peak_rss_mb,model_size_mb,avg_prompt_words,rag_words_vs_full,median_rag_words,median_full_words
+Retrieval-only (no LLM),Retrieval-only (no LLM),rag,dense,33,0.732,0.584,24,0.091,26.03,0.333,0.679,30.06,0.182,0.0,,0.0,583.0,0.0,178.0,0.585,177.0,297.0
+Retrieval-only (no LLM),Retrieval-only (no LLM),full,dense,33,0.732,0.584,24,0.091,26.03,0.333,0.679,30.06,0.182,0.0,,0.0,577.0,0.0,304.0,,,

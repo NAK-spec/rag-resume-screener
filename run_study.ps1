@@ -2,7 +2,7 @@
     run_study.ps1 - reproduce the study in README.md, cheapest checks first.
 
     .\run_study.ps1 -DryRun          # print the plan, run nothing
-    .\run_study.ps1                  # fast stages only: tests, checker, sweeps, baseline
+    .\run_study.ps1                  # fast stages only: tests, checker, sweeps, baseline, significance
     .\run_study.ps1 -WithModel       # + the Q4_K_M evaluation (~20 min CPU per run)
     .\run_study.ps1 -WithModel -Repeat 2   # ...twice, so the headline is a pair
     .\run_study.ps1 -WithModel -WithDense  # + the dense-embedder run (~20 min CPU)
@@ -11,7 +11,9 @@
 
     CPU cost is the reason for the switches: this machine has no GPU, N_THREADS=4, and each
     model stage is 10-25 minutes of sustained load. The fast stages are what catch a broken
-    corpus or a mis-tuned floor, and they cost seconds - run them every time.
+    corpus or a mis-tuned floor; they cost seconds, including the significance re-analysis
+    (~15 s of numpy, no model); only the no-LLM baseline pair (~2 min) loads torch, and none
+    of them need the GGUF - run them every time.
     Every stage writes to -OutPrefix so a reproduction never overwrites a committed artifact.
     Tee-Object writes UTF-16LE on Windows PowerShell 5.1, so these logs are not byte-diffable
     against the committed UTF-8 ones: compare with
@@ -42,7 +44,7 @@ function Step($label, $block, $cost) {
     if ($LASTEXITCODE -ne 0) { throw "{0} exited {1}" -f $label, $LASTEXITCODE }
 }
 
-Step "tests (25, offline, no model)" { & $py tests/test_pipeline.py } "seconds"
+Step "tests (offline, no model)" { & $py tests/test_pipeline.py } "seconds"
 
 # Labels/files pairing, experience ordering, and whether the generator in this checkout
 # still reproduces data/resumes. Exit code 1 means the corpus the CSVs were measured on
@@ -68,12 +70,26 @@ Step "prompt inflation (pre-dedup vs current, no LLM)" {
 } "seconds"
 
 # Retrieval-only baseline: the whole pipeline without a GGUF. Its rho is floor-insensitive
-# below SIM_ANCHORS["tfidf"][0], so it measures retrieval ordering, not the floor.
+# below SIM_ANCHORS["tfidf"][0], so it measures retrieval ordering, not the floor. The dense
+# twin matters more than it looks: anchored similarity ranks at rho 0.732 there, which is the
+# number the LLM has to beat, so significance.py below reads both of these files.
 Step "no-LLM baseline" {
     & $py evaluate.py --embedder tfidf --fallback --variant "Retrieval-only (no LLM)" `
         --out "$OutPrefix`_fallback.csv" --dump "$OutPrefix`_fallback_per_resume.csv" 2>&1 |
         Tee-Object "$OutPrefix`_fallback.log"
-} "~1 min, no model load"
+    & $py evaluate.py --embedder dense --fallback --variant "Retrieval-only (no LLM)" `
+        --out "$OutPrefix`_fallback_dense.csv" `
+        --dump "$OutPrefix`_fallback_dense_per_resume.csv" 2>&1 |
+        Tee-Object "$OutPrefix`_fallback_dense.log"
+} "~2 min, loads torch but no GGUF"
+
+# Permutation p-values, bootstrap intervals and leave-one-out ranges for the rho claims.
+# It reads the committed per_resume_v2*.csv by name - deliberately not -OutPrefix outputs -
+# because its paired tests need two named runs side by side. To test a fresh reproduction,
+# point --data at a directory holding them under those names.
+Step "significance of the ranking claims (no LLM)" {
+    & $py significance.py | Tee-Object "$OutPrefix`_significance.log"
+} "seconds, numpy only"
 
 if (-not $WithModel -and ($WithDense -or $WithBias)) {
     # -WithDense / -WithBias without -WithModel would otherwise fall off the `return` below

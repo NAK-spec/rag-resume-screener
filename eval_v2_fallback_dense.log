@@ -1,0 +1,18 @@
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights:   5%|4         | 5/103 [00:00<00:01, 49.38it/s]Loading weights:  10%|9         | 10/103 [00:00<00:03, 25.23it/s]Loading weights:  89%|########9 | 92/103 [00:00<00:00, 261.81it/s]Loading weights: 100%|##########| 103/103 [00:00<00:00, 219.33it/s]
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+embedder: dense | sim_floor: 0.24 | resumes: 33 | chunks: 111
+resume length: min 39 / mean 222 / max 480 words
+skipping (no GGUF in ./models): Q8_0 (8-bit), F16 (baseline)
+
+per-resume detail: 66 rows -> per_resume_v2_fallback_dense.csv
+
+                variant mode embedder  n  spearman  kendall  n_distinct_scores  modal_share   mae  within_10  cov_spearman  cov_mae  cov_within_10  avg_latency_s  avg_tok_per_s  model_load_s  peak_rss_mb  model_size_mb  avg_prompt_words  rag_words_vs_full  median_rag_words  median_full_words
+Retrieval-only (no LLM)  rag    dense 33     0.732    0.584                 24        0.091 26.03      0.333         0.679    30.06          0.182            0.0            NaN           0.0        583.0            0.0             178.0              0.585             177.0              297.0
+Retrieval-only (no LLM) full    dense 33     0.732    0.584                 24        0.091 26.03      0.333         0.679    30.06          0.182            0.0            NaN           0.0        577.0            0.0             304.0                NaN               NaN                NaN
+
+peak_rss_mb is process-wide: to compare memory across quantization levels, run one variant per process, e.g. evaluate.py --variant 'Q4_K_M (4-bit)'.
+
+Prompt compression (RAG vs full context, mean words):
+  Retrieval-only (no LLM)    304 ->    178 words (+41.5%), RAG shorter on 30/33 resumes
+
+Saved to results_v2_fallback_dense.csv

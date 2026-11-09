@@ -298,6 +298,33 @@ def test_the_two_floors_are_on_different_scales():
     assert SIM_FLOOR["dense"] / SIM_FLOOR["tfidf"] >= 5
 
 
+def test_the_significance_rho_is_spearmans_rho():
+    """Every p-value and interval in significance.log comes from the script's own
+    vectorised Spearman, not scipy's. These scorers emit between 4 and 24 distinct values
+    over 33 candidates, so tie handling is not a detail - if it drifted from scipy's
+    average-rank definition the log would still print plausible numbers."""
+    import numpy as np
+    from scipy.stats import spearmanr
+
+    from significance import _rho_rows, loo_range
+    rng = np.random.default_rng(7)
+    checked = 0
+    for _ in range(60):
+        x = rng.integers(0, 5, 33).astype(float)
+        y = rng.integers(0, 8, 33).astype(float)
+        if len(set(x.tolist())) < 2 or len(set(y.tolist())) < 2:
+            continue
+        assert abs(_rho_rows(x[None, :], y[None, :])[0] - spearmanr(x, y)[0]) < 1e-12
+        checked += 1
+    assert checked > 30, f"the tie-heavy draw was degenerate too often: {checked}"
+
+    gold = np.arange(33, dtype=float)
+    assert _rho_rows(gold[None, :], (2 * gold)[None, :])[0] == 1.0
+    assert np.isnan(_rho_rows(np.zeros((1, 33)), gold[None, :])[0]), "a constant scorer has no rank"
+    lo, hi = loo_range(gold, gold)
+    assert lo == hi == 1.0, (lo, hi)
+
+
 def _metric_row(scores, latencies=None):
     latencies = latencies or [0.5] * len(scores)
     results = [SimpleNamespace(resume_id=f"r{i}.txt", score=s, score_coverage=float(s),

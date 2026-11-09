@@ -1,0 +1,70 @@
+seed=7 draws=20000 n=33 candidates per run | Spearman recomputed with average ties, cross-checked against scipy
+self-check: vectorised rho == scipy spearmanr on 200 tie-heavy vectors (max abs error 1.1e-16)
+
+correlation with the rubric label (human_score)
+
+rag, tfidf (LLM)     score         rho +0.753 tau +0.629 | permutation p<1.0e-04 (no permutation beat it in 20000)
+                                   bootstrap 95% [+0.565, +0.858]  (Fisher-z [+0.552, +0.871]; 0/20000 resamples had no rank)
+                                   leave-one-out rho spans [+0.727, +0.793] -> dropping one CV moves it by up to 0.040
+
+rag, tfidf (LLM)     coverage      rho +0.554 tau +0.462 | permutation p=0.0011
+                                   bootstrap 95% [+0.260, +0.767]  (Fisher-z [+0.260, +0.754]; 0/20000 resamples had no rank)
+                                   leave-one-out rho spans [+0.511, +0.612] -> dropping one CV moves it by up to 0.058
+
+rag, dense (LLM)     score         rho +0.670 tau +0.576 | permutation p=1.0e-04
+                                   bootstrap 95% [+0.415, +0.837]  (Fisher-z [+0.424, +0.824]; 0/20000 resamples had no rank)
+                                   leave-one-out rho spans [+0.634, +0.712] -> dropping one CV moves it by up to 0.042
+
+rag, dense (LLM)     coverage      rho +0.535 tau +0.460 | permutation p=1.0e-03
+                                   bootstrap 95% [+0.243, +0.737]  (Fisher-z [+0.234, +0.742]; 33/20000 resamples had no rank)
+                                   leave-one-out rho spans [+0.471, +0.572] -> dropping one CV moves it by up to 0.064
+
+rag, tfidf (no LLM)  score         rho +0.306 tau +0.249 | permutation p=0.0870
+                                   bootstrap 95% [-0.067, +0.644]  (Fisher-z [-0.042, +0.587]; 0/20000 resamples had no rank)
+                                   leave-one-out rho spans [+0.266, +0.400] -> dropping one CV moves it by up to 0.094
+
+rag, tfidf (no LLM)  coverage      rho +0.385 tau +0.330 | permutation p=0.0262
+                                   bootstrap 95% [+0.094, +0.613]  (Fisher-z [+0.048, +0.643]; 98/20000 resamples had no rank)
+                                   leave-one-out rho spans [+0.325, +0.449] -> dropping one CV moves it by up to 0.064
+
+rag, dense (no LLM)  score         rho +0.732 tau +0.584 | permutation p<1.0e-04 (no permutation beat it in 20000)
+                                   bootstrap 95% [+0.473, +0.886]  (Fisher-z [+0.520, +0.860]; 0/20000 resamples had no rank)
+                                   leave-one-out rho spans [+0.706, +0.781] -> dropping one CV moves it by up to 0.049
+
+rag, dense (no LLM)  coverage      rho +0.679 tau +0.584 | permutation p=1.0e-04
+                                   bootstrap 95% [+0.431, +0.848]  (Fisher-z [+0.437, +0.829]; 0/20000 resamples had no rank)
+                                   leave-one-out rho spans [+0.645, +0.719] -> dropping one CV moves it by up to 0.040
+
+full, tfidf (LLM)    score         rho undefined - 1 distinct score(s) across 33 candidates, no rank to test
+
+full, tfidf (LLM)    coverage      rho -0.267 tau -0.211 | permutation p=0.1293
+                                   bootstrap 95% [-0.575, +0.084]  (Fisher-z [-0.559, +0.084]; 0/20000 resamples had no rank)
+                                   leave-one-out rho spans [-0.331, -0.217] -> dropping one CV moves it by up to 0.064
+
+
+paired comparisons (same 33 candidates, resampled together)
+a 'no LLM' row scores requirements by anchored max similarity and never calls a
+model; its embedder is named in its own label, so mixed pairs are labelled too
+
+rag, tfidf (LLM) - rag, dense (LLM)  [same scorer, other retriever]
+  drho +0.083, bootstrap 95% [-0.175, +0.351], P(first ranks better)=0.743, bootstrap two-sided p=0.5143
+  absolute error: mean 23.91 vs 16.55, first lower on 7 candidates / second on 11 / 15 equal, Wilcoxon p=0.1757 (stat 54.5)
+
+rag, tfidf (LLM) - rag, tfidf (no LLM)  [LLM vs similarity, tfidf]
+  drho +0.447, bootstrap 95% [+0.098, +0.805], P(first ranks better)=0.995, bootstrap two-sided p=0.0095
+  absolute error: mean 23.91 vs 54.48, first lower on 30 candidates / second on 1 / 2 equal, Wilcoxon p=1.3e-06 (stat 1.0)
+
+rag, dense (LLM) - rag, dense (no LLM)  [LLM vs similarity, dense]
+  drho -0.062, bootstrap 95% [-0.312, +0.191], P(first ranks better)=0.314, bootstrap two-sided p=0.6276
+  absolute error: mean 16.55 vs 26.03, first lower on 20 candidates / second on 11 / 2 equal, Wilcoxon p=0.0435 (stat 145.0)
+
+rag, dense (LLM) - rag, tfidf (no LLM)  [MIXED retriever, quoted with care]
+  drho +0.364, bootstrap 95% [-0.043, +0.762], P(first ranks better)=0.958, bootstrap two-sided p=0.0836
+  absolute error: mean 16.55 vs 54.48, first lower on 27 candidates / second on 5 / 1 equal, Wilcoxon p=3.3e-05 (stat 42.0)
+What this does and does not license:
+ - A permutation p-value below 0.05 means the ordering is unlikely to be a lucky shuffle of these labels; it says nothing about real hiring outcomes.
+ - P(first ranks better) near 0.5 with an interval across zero is the honest form of 'the embedders are indistinguishable here'.
+ - The paired two-sided p is a bootstrap tail-area (2 x the smaller tail), not a randomisation test of the difference; the interval is the number to read.
+ - Wilcoxon compares the two scorers candidate by candidate on absolute error. It asks a different question from rho - accuracy, not ordering - and can disagree.
+ - The 'no LLM' rows are not starved inputs: RetrievalOnlyLLM scores every requirement by its best-matching chunk, while the RAG prompt carries only the budgeted passages. Where the heuristic matches the LLM, that is the result.
+ - Repeating a run at temperature=0 is not a resample: the pairs in ARTIFACTS.md agree exactly, so they add no width and no significance to anything below.

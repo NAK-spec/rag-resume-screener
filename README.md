@@ -121,6 +121,7 @@ streamlit run app.py        # the app
 python evaluate.py --embedder tfidf --out results_v2.csv --dump per_resume_v2.csv
 python sweep_floor.py --embedder tfidf --min-sim 0.08   # what each floor costs (no LLM)
 python prompt_inflation.py   # the pre-dedup prompt size, measured (no LLM)
+python significance.py       # permutation p / bootstrap CI / paired tests on the rho claims (no LLM)
 python bias_audit.py --limit 6 --embedder tfidf --model "Q4_K_M (4-bit)" --out bias_q4.csv
 python data/check_dataset.py   # dataset integrity + generator drift (no model needed)
 python tests/test_pipeline.py    # pytest is not installed; the file is self-running
@@ -214,11 +215,13 @@ python evaluate.py --embedder tfidf --out results_v2_repeat.csv --dump per_resum
 python evaluate.py --embedder dense --out results_v2_dense.csv --dump per_resume_v2_dense.csv
 python evaluate.py --embedder dense --out results_v2_dense_repeat.csv --dump per_resume_v2_dense_repeat.csv
 python evaluate.py --fallback --embedder tfidf --variant "Retrieval-only (no LLM)" --out results_v2_fallback.csv
+python evaluate.py --fallback --embedder dense --variant "Retrieval-only (no LLM)" --out results_v2_fallback_dense.csv
 python sweep_floor.py --embedder tfidf --min-sim 0.08   # -> sweep_tfidf_v2.log, no LLM
 python sweep_floor.py --embedder dense --min-sim 0.50   # -> sweep_dense_v2.log, no LLM
 python sweep_floor.py --embedder dense --min-sim 0.30   # -> sweep_dense_fine_v2.log, the peak grid
 python bias_audit.py --limit 6 --embedder tfidf --floor 0.024 --model "Q4_K_M (4-bit)" --out bias_q4.csv
 python bias_audit.py --limit 6 --embedder tfidf --out bias_retrieval_only_control.csv
+python significance.py                                   # -> significance.log, no LLM, ~15 s
 ```
 
 ### RAG vs full context, same model
@@ -291,7 +294,9 @@ what was claimed: 2,463 vs 2,079 MB (+18.5%).
 - **The ranking difference is not resolvable at n = 33.** 0.753 has a 95% Fisher-z interval
   of [0.553, 0.871] and 0.670 of [0.424, 0.824]; they overlap almost completely, so the
   defensible sentence is "TF-IDF + floor ranked at least as well as dense here", not
-  "TF-IDF is better". That is a slightly awkward result for a project whose title says
+  "TF-IDF is better". The paired bootstrap says it more directly: Δrho +0.083 with CI
+  [−0.175, +0.351] and P(TF-IDF better) = 0.743 (see *Are these correlations significant?*).
+  That is a slightly awkward result for a project whose title says
   *retrieval-augmented*, because the cheap, dependency-free embedder won the headline metric.
   Both figures also survived the corpus correction essentially untouched (0.668 -> 0.670,
   16.58 -> 16.55 MAE), so the comparison is not an artifact of the defective text.
@@ -385,13 +390,62 @@ embedders separate *why* the error is what it is: TF-IDF's error distribution is
 recalibration would remove (19.7 once the -22.0 offset is centred), while dense's straddles
 zero and centring it makes the error very slightly *worse* (16.6 -> 16.7). That is the
 sharpest statement of the embedder trade in this study: dense's 16.6 is not a scale bug
-waiting for a recalibration, it is irreducible per-candidate disagreement, so its apparent
-MAE advantage over TF-IDF cannot be closed by a post-hoc offset the way TF-IDF's can. The
-other thing coverage exposes is in the first table: in full mode the coverage heuristic
+waiting for a recalibration, it is irreducible per-candidate disagreement. Read it as a
+description of these 33 candidates, though - the paired test below finds the 16.6-vs-23.9
+gap itself is not resolvable at this n (Wilcoxon p = 0.176), so the honest claim is "the two
+embedders fail differently", not "dense is more accurate".
+The other thing coverage exposes is in the first table: in full mode the coverage heuristic
 correlates *negatively* with the labels (-0.267), because when every requirement can be
-matched against the entire document, "has a passage about X" stops discriminating. Read
-together with the floor ablation below: retrieval does most of the ranking work, and the
-LLM's judgement is what lifts evidenced-coverage agreement (0.554) to 0.753.
+matched against the entire document, "has a passage about X" stops discriminating - and at
+p = 0.13 that anti-correlation is not distinguishable from noise either, so it is an
+observation about degeneracy, not a finding to quote.
+
+### Are these correlations significant?
+
+`python significance.py` (no LLM, no GGUF, ~15 s of numpy, seed 7, 20,000 draws;
+`significance.log`) tests the ranking claims instead of eyeballing whether two intervals
+touch. Permutation p-values shuffle the rubric labels; bootstrap intervals resample the 33
+candidates, which is the interval to trust here because Fisher-z assumes a continuous
+correlation and these scorers emit 4-24 distinct values; leave-one-out drops each candidate in
+turn, which is how you find a rho carried by one CV. Its first output line is a self-check
+that its own vectorised Spearman equals `scipy.stats.spearmanr` on tie-heavy inputs.
+
+| run | rho | permutation p | bootstrap 95% | leave-one-out rho |
+|---|---|---|---|---|
+| rag, tfidf (LLM) score | +0.753 | < 1.0e-04 | [+0.565, +0.858] | [+0.727, +0.793] |
+| rag, dense (LLM) score | +0.670 | 1.0e-04 | [+0.415, +0.837] | [+0.634, +0.712] |
+| rag, dense (no LLM) score | +0.732 | < 1.0e-04 | [+0.473, +0.886] | [+0.706, +0.781] |
+| rag, tfidf (no LLM) score | +0.306 | **0.0870** | **[−0.067, +0.644]** | [+0.266, +0.400] |
+| rag, tfidf (LLM) coverage | +0.554 | 0.0011 | [+0.260, +0.767] | [+0.511, +0.612] |
+| rag, dense (LLM) coverage | +0.535 | 1.0e-03 | [+0.243, +0.737] | [+0.471, +0.572] |
+| full, tfidf (LLM) score | *undefined* | - | - | - |
+| full, tfidf (LLM) coverage | −0.267 | 0.1293 | [−0.575, +0.084] | [−0.331, −0.217] |
+
+- **The LLM's RAG headlines are real orderings.** TF-IDF's rho was matched or beaten by none
+  of 20,000 label permutations (p < 1.0e-04); dense's by exactly one (p = 1.0e-04) - and both
+  bootstrap intervals sit well clear of zero. Neither is carried by an outlier CV: removing
+  any single candidate moves TF-IDF's rho by at most 0.040 and dense's by at most 0.042.
+- **The embedder difference is measured, and it is nothing.** Resampling the two scorers
+  together (they scored the same 33 candidates, so the difference is a paired quantity and
+  the two single-run intervals were never the right test): Δrho **+0.083**, 95% CI
+  **[−0.175, +0.351]**, P(TF-IDF ranks better) = **0.743**, bootstrap two-sided p = 0.514.
+  The MAE gap is no better: dense is closer on 11 candidates, TF-IDF on 7, 15 tie, which is
+  why Wilcoxon returns p = 0.176 for 16.55 vs 23.91.
+- **Whether the LLM adds ranking value depends on the retriever, and only one direction
+  survives.** Paired against its own no-LLM baseline, TF-IDF gains Δrho **+0.447** (CI
+  [+0.098, +0.805], p = 0.0095; error lower on 30 of 33 candidates) while dense gains
+  **−0.062** (CI [−0.312, +0.191], P(LLM better) = 0.314) - the dense heuristic's 0.732 lands
+  inside the LLM's own interval [+0.415, +0.837], which is exactly why the paired difference,
+  not two overlapping intervals, is the test. Full numbers in *No-LLM baseline* below; this is
+  the study's main negative result.
+- **Degenerate resampling is rare but not zero:** 33 of 20,000 dense-coverage bootstrap
+  resamples landed on one distinct value and had no rank; the TF-IDF no-LLM coverage column
+  had 98. Those draws are dropped and counted rather than silently smoothed.
+
+What a small p does *not* mean here: the labels were generated from the same rubric the
+pipeline encodes, so a permutation test asks "is this ordering consistent with the rubric",
+not "is this a good hiring decision". The circularity note above applies to every one of
+these numbers, and the coverage columns most of all.
 
 
 ### Run-to-run determinism
@@ -577,19 +631,45 @@ model gives them 0/100, and that is the behaviour a floor is supposed to produce
 
 ### No-LLM baseline
 
-Retrieval-only scoring (no generation at all) reaches rho **0.306** / tau 0.249 / MAE 54.5 /
-within-10 0.061 on the same 33 resumes (`results_v2_fallback.csv`, and to the last decimal on
-the pre-correction corpus in `results_fallback_floor024.csv`), so the quantized
-LLM contributes real ranking value (0.306 -> 0.753 with TF-IDF, -> 0.670 with dense).
+Retrieval-only scoring - same chunks, same floor, same anchored similarity-to-fit arithmetic,
+no generation at all - was measured on **both** embedders, and the two do not behave alike:
 
-One caveat that changes how to read that gap: **the baseline does not respond to the floor
-below its own anchor.** Re-running it at floors 0.000 / 0.024 / 0.030 / 0.050 gives the
+| retriever | rho | tau | MAE | within ±10 | distinct scores | LLM rho on the same retriever |
+|---|---|---|---|---|---|---|
+| tfidf | 0.306 | 0.249 | 54.5 | 0.061 | 12 | **0.753** |
+| dense | **0.732** | 0.584 | 26.0 | 0.333 | 24 | 0.670 |
+
+(`results_v2_fallback.csv`, `results_v2_fallback_dense.csv`. The TF-IDF row is identical to
+the last decimal on the pre-corpus-correction data - `results_fallback_floor024.csv` - which
+is the anchor-insensitivity described below showing up as corpus-insensitivity.)
+
+With TF-IDF the LLM is doing the ranking (paired Δrho **+0.447**, CI [+0.098, +0.805],
+p = 0.0095; absolute error lower on 30 of 33 candidates, 1 worse, 2 tied, Wilcoxon
+p = 1.3e-06), and the heuristic on its own is not even a significant ordering (rho 0.306,
+permutation p = 0.087, bootstrap CI [−0.067, +0.644] covers zero). With the dense embedder the
+result inverts, and this study reports it rather than burying it: **the no-LLM heuristic ranks
+at 0.732 and the quantized LLM ranks at 0.670 on the same retriever** - Δrho **−0.062**, CI
+[−0.312, +0.191], P(LLM ranks better) = 0.314. Retrieval quality plus a threshold reproduces
+the ordering; the model adds nothing to it at n = 33.
+
+What the LLM does add on the dense side is absolute calibration and provenance, not rank:
+MAE 16.55 vs 26.03, lower on 20 of 33 candidates (11 worse, 2 equal, Wilcoxon p = 0.044), and
+a `matched`/`missing` list with passage citations that a similarity score cannot produce. The
+defensible thesis sentence is therefore *"the quantized LLM contributes ranking value over a
+weak-retrieval baseline and calibration value over a strong one"* - not "the LLM is what ranks
+resumes".
+
+One caveat that changes how to read the TF-IDF gap: **that baseline does not respond to the
+floor below its own anchor.** Re-running it at floors 0.000 / 0.024 / 0.030 / 0.050 gives the
 identical rho 0.306, because `RetrievalOnlyLLM` rescales similarities through
 `SIM_ANCHORS["tfidf"] = (0.05, 0.30)` and clamps everything under 0.05 to zero fit - so any
 floor at or below 0.05 is invisible to it. It only starts moving above the anchor
-(0.080 -> 0.336, 0.120 -> 0.358). The floor's -0.083 -> 0.753 swing is therefore a property
-of what the *LLM* is shown, not something a similarity-threshold scorer would have found on
-its own - and the prompt compression and latency rows above belong to the retrieval stage,
+(0.080 -> 0.336, 0.120 -> 0.358). The dense baseline is not clamped the same way: its lower
+anchor 0.20 sits *below* its floor 0.24, so every requirement the retriever kept also earns a
+non-zero fit - one reason the two no-LLM rows differ by 0.43 of rho. The floor's -0.083 ->
+0.753 swing is therefore a property of what the *LLM* is shown, not something a
+similarity-threshold scorer would have found on its own - and the prompt compression and
+latency rows above belong to the retrieval stage,
 so they are not quantization effects. With one quantization level present, this project does
 not measure the quantization axis.
 
@@ -673,8 +753,25 @@ be compared against "the score moves by this much anyway".
   that proves is *reproducibility* - no process-level nondeterminism in the retrieval, prompt
   build or greedy decode - not precision: `temperature=0` makes a second run of the same
   input a foregone conclusion, so the repeats add no sampling information and leave every
-  Fisher-z interval, and the 0.753-vs-0.670 ordering, exactly as wide as they were with one
-  process. The ordering still should not be claimed in either direction.
+  interval, Fisher-z or bootstrap, and the 0.753-vs-0.670 ordering, exactly as wide as they
+  were with one process. The ordering still should not be claimed in either direction, and
+  `significance.py` now measures rather than asserts it: paired Δrho +0.083, CI
+  [−0.175, +0.351], P(TF-IDF better) = 0.743.
+- **On the dense retriever the LLM adds no measurable ranking value.** Its no-LLM baseline -
+  anchored max similarity, no generation - ranks at rho 0.732 against the LLM's 0.670 on the
+  same chunks, floor and labels; paired Δrho is **−0.062** with CI [−0.312, +0.191] and
+  P(LLM better) = 0.314. The same comparison on TF-IDF is Δrho +0.447 (p = 0.0095). So the
+  contribution of the quantized model in this study is retriever-dependent: ordering value
+  where retrieval is coarse, calibration value (MAE 16.55 vs 26.03, Wilcoxon p = 0.044) and
+  citations where retrieval is already good. A thesis claim of "the LLM is what ranks the
+  resumes" is not supported on both embedders and this project says so.
+- The correlations that are significant are significant **against a rubric the dataset was
+  generated from**. `significance.py` gives permutation p-values and bootstrap intervals for
+  every quotable rho, and two numbers came back different from how README had been reading
+  them: the TF-IDF retrieval-only baseline's 0.306 is *not* distinguishable from a label
+  shuffle (p = 0.087), and the dense-vs-TF-IDF MAE gap is not resolvable either (Wilcoxon
+  p = 0.176, 11-7-15 by candidate). Both RAG LLM headlines are solid (p <= 1.0e-04), and so is
+  the TF-IDF LLM's margin over its own no-LLM scorer.
 - Labels are synthetic and rubric-derived, so agreement measures whether the pipeline
   reproduces a stated rubric, not real hiring judgement. n = 33 is small; rho 0.753 has a
   95% Fisher-z interval of [0.553, 0.871] and the dense run's 0.670 of [0.424, 0.824].

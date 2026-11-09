@@ -45,6 +45,8 @@ reproduced result, and read `results.csv` as its audit trail.
 | `per_resume_v2.csv` / `per_resume_v2_repeat.csv` | tfidf | 0.024 | Q4_K_M | - | - | per-candidate rows behind the floor, degeneracy (20 of 33 on score 20), +-10, coverage-divergence and prompt-length tables |
 | `results_v2_fallback.csv` | tfidf | 0.024 | retrieval-only | 0.306 | 54.48 | "No-LLM baseline" section. rho/tau/MAE identical to the pre-correction `results_fallback_floor024.csv` - the baseline is floor-insensitive below its `SIM_ANCHORS` 0.05, so it cannot see the corpus edit either |
 | `per_resume_v2_fallback.csv` | tfidf | 0.024 | retrieval-only | - | - | per-candidate fallback rows (12 distinct scores, modal share 0.303 - it is coarse but not degenerate) |
+| `results_v2_fallback_dense.csv` | dense | 0.24 | retrieval-only | **0.732** | 26.03 | the same scorer on the dense embedder (`eval_v2_fallback_dense.log`), no GGUF. **This is the number the dense LLM row has to be compared against**: 24 distinct scores, modal share 0.091, within-10 0.333, coverage rho 0.679 |
+| `per_resume_v2_fallback_dense.csv` | dense | 0.24 | retrieval-only | - | - | its per-candidate rows. `rag` and `full` are identical by construction - this scorer never sees the prompt |
 | `results_v2_dense.csv` | dense | 0.24 | Q4_K_M | 0.670 | 16.55 | **dense headline on the corrected corpus**, backed by `eval_v2_dense.log` (`embedder: dense \| sim_floor: 0.24`). `modal_share` 0.576 (19 of 33 on 80), 4 distinct scores |
 | `per_resume_v2_dense.csv` | dense | 0.24 | Q4_K_M | - | - | its per-candidate rows; also the file that shows `full` mode scoring 85 for all 33 candidates under *both* embedders |
 | `results_v2_dense_repeat.csv` | dense | 0.24 | Q4_K_M | 0.670 | 16.55 | **independent second dense process**, backed by `eval_v2_dense_repeat.log`. Quality columns identical to the row above in both modes; **its `avg_latency_s` (21.2 rag / 12,812.7 full) and `model_load_s` (9.91) are void - do not quote them.** See "Latency is not comparable across files" |
@@ -144,6 +146,18 @@ still fails to separate them.
   numbers, different corpus, and they are one process between them, not two.
 - `bias_results.csv` - pre-placebo.
 - Any rho from a `full` row on the corrected corpus - there is none; the mode emits one value.
+- Retrieval-only `rho 0.306` as "retrieval ranks the resumes on its own" - permutation
+  p = 0.087 and the bootstrap interval covers zero (`significance.log`). Use it only as the
+  paired floor the LLM beats, which is significant.
+- "The quantized LLM out-ranks retrieval", full stop - it does on TF-IDF (Δrho +0.447,
+  p = 0.0095) and does not on dense (Δrho −0.062, CI [−0.312, +0.191]). Name the embedder, or
+  quote the defensible version: ranking value over the weak baseline, calibration value
+  (MAE 16.55 vs 26.03, p = 0.044) over the strong one.
+- `results_v2_fallback_dense.csv`'s rho 0.732 as "the no-LLM pipeline is as good as the LLM"
+  without the paired number next to it. The two rows differ in *what they see*: the heuristic
+  scores every requirement by its best-matching chunk, the prompt carries only the budgeted
+  passages. The comparison is scorer-vs-scorer on identical retrieval, not "with RAG" vs
+  "without".
 - Any ordering of the two embedders from 0.753 vs 0.670 - the Fisher-z intervals at n = 33
   overlap almost completely ([0.553, 0.871] vs [0.424, 0.824]), and the second process on each
   side changes that: identical repeats under `temperature=0` demonstrate reproducibility, not
@@ -167,6 +181,38 @@ still fails to separate them.
 committed file backed it. Re-deriving it from the git-recovered code gives 1,671 mean, not 416
 - the old figure was almost certainly measured on the three short hand-written CVs before the
 30 generated resumes existed. Quote `prompt_inflation.log`, not the retired 416.
+
+## Significance tests, measured without an LLM
+
+| file | what it is |
+|---|---|
+| `significance.log` | `python significance.py` (seed 7, 20,000 draws) - permutation p-value, bootstrap 95% interval, Fisher-z for contrast, and a leave-one-out rho span for every quotable correlation, then four **paired** comparisons that resample the shared 33 candidates together. Cheap: **6.1 s** warm, 14.4 s cold, measured. It reads the committed `per_resume_v2*.csv` by name, so it is a re-analysis of the runs above, not a new measurement |
+| `significance.py` | the script. Its first output line is a self-check: the vectorised tie-aware Spearman must equal `scipy.stats.spearmanr` on 200 tie-heavy random vectors (max abs error **1.1e-16**), because every number in the log depends on it. Verified reproducible - three invocations produced identical logs (the only diff since is a UTF-16 BOM from a PowerShell redirect, not a number) |
+
+**What it changed in the prose, and why the old wording must not come back:**
+
+- `rho 0.753` and `rho 0.670` are significant (p < 1.0e-04 and p = 1.0e-04) and neither is
+  carried by one CV (leave-one-out spans +0.727..+0.793 and +0.634..+0.712).
+- The embedder comparison is **paired**, not two intervals: Δrho +0.083, CI
+  [−0.175, +0.351], P(TF-IDF better) 0.743, two-sided 0.514. Quote that, not "the intervals
+  overlap".
+- **The headline negative result:** on the dense retriever the LLM does not beat its own
+  no-LLM baseline. `results_v2_fallback_dense.csv` ranks at **0.732** with no generation,
+  against the LLM's 0.670 - paired Δrho **−0.062**, CI [−0.312, +0.191], P(LLM better) 0.314.
+  On TF-IDF the same comparison is Δrho +0.447 (p = 0.0095). Any sentence of the form "the
+  quantized LLM out-ranks retrieval" must name the embedder, because it is only true of one.
+- **Withdraw as a ranking result:** the TF-IDF retrieval-only rho 0.306 (permutation p = 0.087,
+  CI [−0.067, +0.644] covers zero). It is still the correct measure of *retrieval ordering* and
+  of what the LLM is being compared against - the LLM's advantage over it is significant
+  (Δrho +0.447, CI [+0.098, +0.805], p = 0.0095) - but "retrieval alone ranks these resumes"
+  is not supported at n = 33 on that embedder. It *is* supported on dense (0.732, p < 1.0e-04).
+- **Withdraw as an advantage:** dense's MAE 16.55 over TF-IDF's 23.91 (Wilcoxon p = 0.176;
+  dense closer on 11 candidates, TF-IDF on 7, 15 tied). The *shape* difference - TF-IDF's
+  one-sided error needing recalibration, dense's not - is descriptive of these 33 and stays.
+- The one LLM-vs-heuristic comparison that does survive on dense is accuracy, not rank: MAE
+  16.55 vs 26.03, lower on 20 of 33 candidates (11 worse, 2 equal), Wilcoxon p = 0.044.
+- Full-mode coverage rho −0.267 is not significant (p = 0.129); the full-mode score rho is
+  undefined, so the mode contributes no rank claim at all.
 
 ## Scratch
 

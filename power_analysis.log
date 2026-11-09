@@ -1,0 +1,80 @@
+seed=7 sims=2000 per cell | score and label marginals read from the committed runs | alpha=0.05, target power=0.8
+rejection rule = the permutation null of the same marginals, so the ties that make these scorers coarse sit in both the null and the alternative
+
+self-check: 40 rows of a 33-value pool reproduced exactly, 0 damaged; independent latents give rho +0.001; the grid runs +0.092 / +0.356 / +0.641 at latent 0.11 / 0.44 / 0.77; target 0.60 lands on +0.600; two scorers asked for the same rho differ by +0.001
+
+distinct scores, and the rho ceiling each score multiset can express
+   run                      rho  distinct  modal share   ceiling
+   rag, tfidf (LLM)      +0.753         5        0.606     0.857
+   rag, dense (LLM)      +0.670         4        0.576     0.864
+   rag, tfidf (no LLM)   +0.306        12        0.303     0.962
+   rag, dense (no LLM)   +0.732        24        0.091     0.974
+   the ceiling is what a perfect latent cannot beat: a scorer that emits 4 values
+   across 33 candidates cannot express a perfect ranking of them, and no amount of
+   recalibration or candidates buys it back.
+
+1) power the study had against the rho it found, and the model's two checks
+   run                      rho  null |rho|  model rho   power   sim SD  bootstrap SD
+   rag, tfidf (LLM)      +0.753       0.341     +0.753 100.0%    0.061         0.073
+   rag, dense (LLM)      +0.670       0.330     +0.670  99.9%    0.087         0.107
+   rag, tfidf (no LLM)   +0.306       0.347     +0.306  41.6%    0.163         0.177
+   rag, dense (no LLM)   +0.732       0.355     +0.732  99.8%    0.092         0.105
+   model rho against observed rho is the calibration check, sim SD against
+   bootstrap SD is the width check. Close, but not the same object: the bootstrap
+   resamples this one dataset, the simulation resamples the design.
+
+2) smallest true rho detectable at 80% power, by candidate count
+      n        tfidf (LLM)        dense (LLM)     tfidf (no LLM)     dense (no LLM)
+     33              0.473              0.456              0.467              0.467
+     66              0.338              0.337              0.338              0.336
+    100              0.284              0.275              0.284              0.273
+    200              0.206              0.202              0.196              0.196
+   a design that needs rho 0.46 to be significant cannot turn 'rho 0.31, p = 0.09'
+   into a finding about hiring; it is a finding about this n.
+
+3) what would resolve the two differences the study reports as unresolvable
+
+   rag, tfidf (LLM) vs rag, dense (LLM): delta rho +0.083 held fixed across the sweep, at rho +0.753 / +0.670
+        n    power reject if delta outside     sim rho a/b  model delta  true delta  null delta  distinct a/b
+       33   15.1% [-0.194, +0.201]   0.753/0.670       +0.090     +0.083     +0.002      5/4        <- the study as run 
+       50   21.9% [-0.160, +0.149]   0.753/0.670       +0.085     +0.083     -0.001      5/4      
+       66   20.9% [-0.137, +0.119]   0.749/0.670       +0.065     +0.083     -0.014      5/4      correlation matrix clipped
+      100   29.7% [-0.109, +0.106]   0.753/0.670       +0.079     +0.083     -0.002      5/4      
+      150   40.4% [-0.086, +0.092]   0.753/0.670       +0.080     +0.083     +0.001      5/4      
+      250   64.9% [-0.069, +0.073]   0.753/0.670       +0.087     +0.083     +0.001      5/4      
+     power should not fall as candidates are added: it rises across this sweep
+     the null column is the generator's own calibration: under H0 the two scorers are asked for the same rho, so its mean delta must sit at 0 (worst here +0.014). A systematic offset means the columns are not being joined the way the correlation matrix says, and no power number below it means anything.
+     n for 80% power against this difference: above 250
+     the scorers agree with each other at rank rho +0.462, so the paired test compares correlated rankings, not independent ones
+     ceilings for these two runs: 0.858 / 0.864
+
+   rag, dense (LLM) vs rag, dense (no LLM): delta rho -0.062 held fixed across the sweep, at rho +0.670 / +0.732
+        n    power reject if delta outside     sim rho a/b  model delta  true delta  null delta  distinct a/b
+       33    9.6% [-0.220, +0.237]   0.670/0.732       -0.053     -0.062     +0.002      4/24       <- the study as run 
+       50   15.1% [-0.154, +0.192]   0.670/0.732       -0.059     -0.062     +0.005      4/21     
+       66   13.7% [-0.162, +0.161]   0.670/0.732       -0.072     -0.062     -0.005      4/21     
+      100   15.7% [-0.122, +0.138]   0.670/0.732       -0.062     -0.062     +0.001      4/24     
+      150   21.5% [-0.100, +0.100]   0.670/0.732       -0.061     -0.062     +0.002      4/24     
+      250   36.0% [-0.074, +0.088]   0.670/0.732       -0.061     -0.062     +0.004      4/24     
+     power should not fall as candidates are added: it rises across this sweep
+     the null column is the generator's own calibration: under H0 the two scorers are asked for the same rho, so its mean delta must sit at 0 (worst here +0.005). A systematic offset means the columns are not being joined the way the correlation matrix says, and no power number below it means anything.
+     n for 80% power against this difference: above 250
+     the scorers agree with each other at rank rho +0.512, so the paired test compares correlated rankings, not independent ones
+     ceilings for these two runs: 0.863 / 0.973
+
+What this does and does not license:
+ - Power is computed with the observed rho as the true rho, the usual plug-in, and
+   it is generous: the true value sits inside an interval this file reproduces, so
+   real power against a weaker truth is lower than printed.
+ - The ceiling is a harder limit than power. A scorer that emits 4 values across 33
+   candidates cannot express a perfect ranking of them, so the loss is in the
+   scorer's resolution, not in the number of candidates or the calibration.
+ - More candidates sharpen agreement with the rubric, not agreement with hiring.
+   The labels are generated from the criteria the pipeline encodes, so n = 250
+   measures the same circularity more precisely.
+ - Rows with n > 33 are bootstrap resamples of the 33 real candidates, scores and
+   labels drawn on the same indices so a candidate stays one candidate. They repeat
+   candidates and inherit their quirks, so they size the design's power rather than
+   predicting a new experiment's result.
+ - A null at n = 33 is not a proof of no effect. It is a statement that this
+   design, on these labels, could not have told the difference apart.

@@ -325,6 +325,31 @@ def test_the_significance_rho_is_spearmans_rho():
     assert lo == hi == 1.0, (lo, hi)
 
 
+def test_the_power_simulator_is_calibrated():
+    """power_analysis.py's claims rest on three generator properties, none of which numpy
+    checks on its own. An asymmetric correlation matrix is factorised from its lower triangle
+    alone, so the paired generator can silently produce a different dependence than the one
+    asked for; a damaged marginal would quietly change the tie structure being simulated."""
+    import numpy as np
+
+    from power_analysis import at, curve, paired_delta, assign
+
+    rng = np.random.default_rng(7)
+    pool = np.sort(np.array([80.0] * 19 + [60.0] * 10 + [40.0, 20.0, 10.0, 5.0]))
+    labels = np.sort(np.arange(33.0) * 3)
+
+    rows = assign(rng.standard_normal((25, len(pool))), pool, rng)
+    assert all(sorted(r) == sorted(pool) for r in rows), "the simulated scorer lost its ties"
+
+    null_d, clipped = paired_delta(0.6, 0.6, 0.5, pool, pool, labels, 400, rng)
+    assert abs(float(np.nanmean(null_d))) < 0.05, f"H0 delta drifted to {np.nanmean(null_d):+.3f}"
+
+    c = curve(pool, labels, 400, rng)
+    assert c["mean"][0] < 0.05, "independent latents correlated"
+    assert c["mean"][1] < c["ceiling"], "the calibration grid is not monotone"
+    assert at(c, c["ceiling"] + 0.5)["clamped"], "an impossible target was accepted silently"
+
+
 def _metric_row(scores, latencies=None):
     latencies = latencies or [0.5] * len(scores)
     results = [SimpleNamespace(resume_id=f"r{i}.txt", score=s, score_coverage=float(s),

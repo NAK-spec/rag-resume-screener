@@ -91,6 +91,12 @@ Step "significance of the ranking claims (no LLM)" {
     & $py significance.py | Tee-Object "$OutPrefix`_significance.log"
 } "seconds, numpy only"
 
+# The other half of the same question: what this design could have detected. Also reads the
+# committed per_resume_v2*.csv by name, for the same reason as the stage above.
+Step "statistical power of the design (no LLM)" {
+    & $py power_analysis.py | Tee-Object "$OutPrefix`_power.log"
+} "seconds, numpy only"
+
 if (-not $WithModel -and ($WithDense -or $WithBias)) {
     # -WithDense / -WithBias without -WithModel would otherwise fall off the `return` below
     # and report success having measured nothing.

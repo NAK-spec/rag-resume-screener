@@ -195,8 +195,20 @@ def role_years(cursor: int, grad_year: int, span: int) -> tuple[int, int]:
     return min(cursor, max(grad_year, cursor - span)), cursor
 
 
-def render(rid: int, rng: random.Random, credits: dict):
-    """Compose one resume from the candidate's qualification facts."""
+def render(rid: int, rng: random.Random, credits: dict, provenance: list | None = None):
+    """Compose one resume from the candidate's qualification facts.
+
+    `provenance`, when given, collects (skill, sentence) for every bullet that is written
+    into the document - the rubric-relevant evidence tagged by the skill it demonstrates,
+    and irrelevant filler tagged "filler". It costs nothing in the RNG stream, so the text
+    is byte-identical with or without it, and `retrieval_quality.py` can then ask the
+    pipeline whether a *known* piece of evidence reached the prompt instead of guessing at
+    relevance from the surface text.
+    """
+    def record(tag, t):
+        if provenance is not None:
+            provenance.append((tag, t))
+
     domain = rng.choice(DOMAINS)
     proven = [s for s in SKILLS if credits[s] == "proven"]
     claimed = [s for s in SKILLS if credits[s] == "claimed"]
@@ -232,12 +244,14 @@ def render(rid: int, rng: random.Random, credits: dict):
             if key not in seen:
                 seen.add(key)
                 exp.append(t)
+                record(s, t)
     for _ in range(n_filler):
         t = fill(rng.choice(FILLER))
         key = re.sub(r"\d+", "#", t).lower()
         if key not in seen:
             seen.add(key)
             exp.append(t)
+            record("filler", t)
     rng.shuffle(exp)
 
     # Projects reuse skills in a different setting, never repeating an experience line
@@ -249,6 +263,7 @@ def render(rid: int, rng: random.Random, credits: dict):
             if key not in seen:
                 seen.add(key)
                 proj.append(t)
+                record(s, t)
                 break
 
     lines = [f"Candidate R{rid:02d}", ""]
@@ -336,6 +351,28 @@ def make_credits(rng: random.Random, tier: str) -> dict:
     return credits
 
 
+def build(n: int = 30, seed: int = 7):
+    """Generate the whole set in memory: (name, tier, credits, text, provenance) per resume.
+
+    This is the single source of the corpus - `main()` only writes what it returns, and
+    `retrieval_quality.py` imports it to get ground-truth provenance for the same text
+    the study scored. One construction path, so the two cannot disagree about which
+    sentence was written to demonstrate which skill.
+    """
+    rng = random.Random(seed)
+    # keep the score distribution wide enough for rank correlation to mean anything
+    tiers = (["strong"] * round(n * 0.27) + ["medium"] * round(n * 0.4)
+             + ["weak"] * (n - round(n * 0.27) - round(n * 0.4)))
+    rng.shuffle(tiers)
+    rows = []
+    for i, tier in enumerate(tiers, 1):
+        credits = make_credits(rng, tier)
+        provenance = []
+        text = render(i, rng, credits, provenance)
+        rows.append((f"r{i:02d}_{tier}.txt", tier, credits, text, provenance))
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=30)
@@ -347,17 +384,9 @@ def main():
     resumes = out / "resumes"
     resumes.mkdir(parents=True, exist_ok=True)
 
-    rng = random.Random(args.seed)
-    # keep the score distribution wide enough for rank correlation to mean anything
-    tiers = (["strong"] * round(args.n * 0.27) + ["medium"] * round(args.n * 0.4)
-             + ["weak"] * (args.n - round(args.n * 0.27) - round(args.n * 0.4)))
-    rng.shuffle(tiers)
-
+    rows = build(args.n, args.seed)
     labels, words = [], []
-    for i, tier in enumerate(tiers, 1):
-        credits = make_credits(rng, tier)
-        text = render(i, rng, credits)
-        name = f"r{i:02d}_{tier}.txt"
+    for name, tier, credits, text, _ in rows:
         (resumes / name).write_text(text, encoding="utf-8")
         labels.append((name, rubric_score(credits), tier))
         words.append(len(text.split()))

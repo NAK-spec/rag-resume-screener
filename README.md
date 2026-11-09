@@ -196,11 +196,14 @@ one full-mode generation is stamped 421,575 s (4.9 days) because the clock kept 
 the CPU did not. See Determinism and reproducibility.
 
 Reproduce with `.\run_study.ps1` (fast stages only), `.\run_study.ps1 -WithModel -Repeat 2`
-for the evaluation pair, `-WithModel -WithDense` for the dense run, `-WithModel -WithBias`
+for the TF-IDF pair, `-WithModel -WithDense` for one dense run, `-WithModel -WithDense
+-Repeat 2` for the full four-process set the artifacts above come from, `-WithModel -WithBias`
 for the audit. `-WithDense`/`-WithBias` without `-WithModel` is an error rather than a silent
 no-op. Each LLM run is ~15-25 min of CPU generation on this machine; keep them serial, they
 contend for the same 4 threads and latency is part of what is being measured - but note that
-latency is only comparable *within* one run, never between two of them. The runner's fast
+latency is only comparable *within* one run, never between two of them, and not inside a run
+that was suspended: the laptop sleeping mid-generation is counted as elapsed time, which is
+how the dense repeat ended up with a 421,575-second row and a still-correct score. The runner's fast
 stages were executed end to end and reproduce the committed artifacts exactly - all three
 sweep grids and the fallback per-resume rows match - so `.\run_study.ps1` is a verified path,
 not an untested script. The equivalent commands:

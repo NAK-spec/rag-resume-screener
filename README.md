@@ -1057,7 +1057,10 @@ The results section above records what this design did and did not establish.
 - Scores support, not replace, human decisions.
 - The retrieval-only fallback is a ranking baseline, not a calibrated scorer: its MAE
   against 0-100 labels stays large by construction.
-- `tests/test_pipeline.py` holds 25 tests and covers the mechanisms the results sections
+- [PRESENTATION.md](PRESENTATION.md) is the defense outline: one slide per result section, each
+  figure pointing at the artifact it was measured in, plus the list of sentences this study does
+  **not** support. It cites committed numbers only - it contains no measurement of its own.
+- `tests/test_pipeline.py` holds 29 tests and covers the mechanisms the results sections
   argues from - the evidence budget, the relevance floor rejecting spurious passages, a
   rejected requirement never being reported as matched, the loud embedder fallback guard,
   the two floors being on different scales, and the degeneracy metrics that stop a

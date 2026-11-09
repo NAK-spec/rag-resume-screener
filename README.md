@@ -123,6 +123,7 @@ python sweep_floor.py --embedder tfidf --min-sim 0.08   # what each floor costs 
 python prompt_inflation.py   # the pre-dedup prompt size, measured (no LLM)
 python significance.py       # permutation p / bootstrap CI / paired tests on the rho claims (no LLM)
 python power_analysis.py     # what this design could have detected, and its rho ceiling (no LLM)
+python retrieval_quality.py  # what the retriever actually delivers, vs the generator's record (no LLM)
 python bias_audit.py --limit 6 --embedder tfidf --model "Q4_K_M (4-bit)" --out bias_q4.csv
 python data/check_dataset.py   # dataset integrity + generator drift (no model needed)
 python tests/test_pipeline.py    # pytest is not installed; the file is self-running
@@ -224,12 +225,13 @@ python bias_audit.py --limit 6 --embedder tfidf --floor 0.024 --model "Q4_K_M (4
 python bias_audit.py --limit 6 --embedder tfidf --out bias_retrieval_only_control.csv
 python significance.py                                   # -> significance.log, no LLM, ~15 s
 python power_analysis.py                                 # -> power_analysis.log, no LLM, ~15 s
+python retrieval_quality.py                              # -> retrieval_quality.log, no LLM, ~25 s
 ```
 
 ### RAG vs full context, same model
 
 TF-IDF retrieval, floor 0.024, on the corrected corpus (`results_v2.csv`, reproduced
-reproduced row-for-row on every quality column by `results_v2_repeat.csv`):
+row-for-row on every quality column by `results_v2_repeat.csv`):
 
 | mode | Spearman | Kendall | MAE | within ±10 | latency | tok/s | prompt words |
 |---|---|---|---|---|---|---|---|
@@ -672,6 +674,16 @@ across three sections still shows the model only one of them. The 2 zero-passage
 are also the interesting ones: the pipeline returns them with an empty evidence set, the
 model gives them 0/100, and that is the behaviour a floor is supposed to produce.
 
+`retrieval_quality.log` now measures what that one passage carries, against the generator's own
+record of which sentence proves which skill, and it sharpens what this grid is optimising: the
+"requirements with NO evidence" column being minimised *is* the prompt's `none` count, and the
+bullets that arrive barely move. At the shipped floor, **25.3%** of the TF-IDF corpus's proof
+arrives whole with the floor on and **25.8%** with it off; dense pastes **2,311 words either
+way** while its `none` count goes 0.30 -> 2.27. So the floor's +0.753-vs-(-0.083) effect is
+largely a change in what the prompt *claims* to be evidence for, not in the text it contains -
+see "What the retriever actually delivers" below for the delivery numbers and the score ceiling
+they imply.
+
 
 ### No-LLM baseline
 
@@ -716,6 +728,73 @@ similarity-threshold scorer would have found on its own - and the prompt compres
 latency rows above belong to the retrieval stage,
 so they are not quantization effects. With one quantization level present, this project does
 not measure the quantization axis.
+
+### What the retriever actually delivers, measured against ground truth
+
+Every number above correlates a score with a label, so none of them says what the retriever put
+in front of the scorer - which is the claim a *retrieval-augmented* framework is actually being
+asked to defend. `python retrieval_quality.py` (no LLM, ~25 s, `retrieval_quality.log`) measures
+it directly, because for the generated CVs the answer is not a guess: `generate_dataset.py` now
+returns, alongside each resume, which sentence it wrote to prove which skill and which is filler
+(`build()` is the one construction path, and `main()` writes what it returns). Bullets become
+word spans in the document, the pipeline's own `select_evidence` + budget runs per condition, and
+delivery is span containment - no relevance heuristic involved.
+
+The measurement validates itself four ways, all printed: the replay reproduces **30/30** shipped
+resumes word-for-word, **all 444** provenance bullets are found inside their own document,
+`rubric(credits) == labels.csv` for 30/30, and the passage count it re-derives matches
+`per_resume_v2.csv`'s own `passages` column on **30/30 rows for both embedders** - so the
+retrieval below is the retrieval that produced the committed scores. The reference row (paste
+every chunk) must and does recall 100% of the bullets at exactly 1.00 of the document, which is
+what pins the span arithmetic.
+
+n = 30 generated CVs: 217 evidence bullets over 86 proven skill-instances, 227 filler bullets.
+
+| condition | bullets whole | proven reqs reached | `none` per CV | pasted words/CV | rubric share | score ceiling rho |
+|---|---|---|---|---|---|---|
+| tfidf, floor 0.024 (as shipped) | 25.3% | 43/86 | 3.80 | 68.9 | 37.2% | **0.732** |
+| tfidf, no floor | 25.8% | 44/86 | 0.37 | 74.6 | 35.2% | 0.721 |
+| tfidf, floor, no word cap | 79.7% | 78/86 | 3.07 | 192.2 | 39.2% | 0.975 |
+| dense, floor 0.24 (as shipped) | 34.1% | 51/86 | 2.27 | 77.0 | 47.0% | **0.804** |
+| dense, no floor | 34.1% | 51/86 | 0.30 | 77.0 | 47.0% | 0.804 |
+| dense, floor, no word cap | 97.2% | 86/86 | 1.10 | 227.0 | 39.1% | 1.000 |
+| full context (reference) | 100% | 86/86 | - | 238.6 | 38.1% | 1.000 |
+
+- **The evidence block is one passage, and the budget is why.** `RAG_MIN_EVIDENCE_WORDS` asks
+  for 120 words on a 238-word CV, but a chunk is 90 words and two do not fit under the cap, so
+  `select_evidence` keeps one and skips the rest: **1.03 passages per CV** (tfidf) and 1.13
+  (dense), 68.9 and 77.0 pasted words. `prompt_inflation.log` counts 69 evidence words per
+  resume from the prompt side, on all 33 - an independent route to the same figure.
+- **So the prompt carries a quarter to a third of the proof.** 25.3% / 34.1% of the bullets that
+  exist arrive whole, 43 / 51 of the 86 proven skill-instances are evidenced, and **3.80 of 6
+  requirements per CV are printed as `none`** under TF-IDF (2.27 under dense).
+- **The floor costs claim discipline, not evidence.** Removing it moves TF-IDF recall by 0.5
+  points (25.8% -> 25.3%) and dense recall by exactly none - dense pastes 2,311 words either
+  way - while the requirements marked `none` go 0.37 -> 3.80 and 0.30 -> 2.27. What the swept
+  optimum in *Where the floor value comes from* maximises is the count of requirements left with
+  evidence, which **is** this `none` column: the floor changes what the prompt asserts about its
+  own coverage far more than it changes the text.
+- **Retrieval, not the model, is the binding constraint.** The ceiling column is the rubric
+  re-applied to only the evidence that arrived, so it bounds *any* reader of that block. On
+  TF-IDF the study's Q4_K_M run scores 0.721 on these same 30 against a 0.732 ceiling: **0.268
+  of the rho is the evidence's and +0.011 is the model's**. Dense leaves more on the table (0.648
+  against 0.804). MAE splits the same way (16.03 achievable vs 24.80 measured, TF-IDF). Widening
+  the cap to no-limit lifts the ceiling to 0.975 / 1.000 - and costs 192 / 227 words per CV, i.e.
+  0.81 / 0.95 of the document, which is the efficiency trade in plain numbers: the compression
+  that makes this "RAG" is exactly what removes the evidence.
+- **The scorer's `matched` list is not bounded by the prompt's own markers.** On 24 of 30 CVs
+  (TF-IDF) the model reported more requirements matched than the prompt leaves with any passage -
+  mean 3.87 claimed against 2.20 evidenced - including `r01_weak.txt`, which matched 5 while 5
+  of its 6 requirements were printed as `none`. Dense: 15 of 30, mean 4.50 claimed vs 3.73
+  evidenced. All 116 (tfidf) / 135 (dense) `matched` entries are canonical requirement strings,
+  so this is not a parse artifact: the model is contradicting an instruction printed in its own
+  prompt, not misreading one.
+
+For the thesis, this is the section that says where the headroom is: under a one-passage budget
+the retriever delivers a quarter of the proof, the quantized scorer ranks at the ceiling that
+proof allows (+0.011 of rho below it), and its citations exceed its evidence on four CVs in five.
+The fix the numbers point at is the chunk/budget geometry, not the model - and the honest cost of
+that fix is in the last bullet.
 
 ### Fairness audit (6 base resumes x 19 variants = 114 screenings, 108 comparisons)
 
@@ -834,6 +913,26 @@ be compared against "the score moves by this much anyway".
   dissenting candidate). The RAG-vs-full comparison therefore rests on the degenerate-versus
   ordered contrast plus MAE (23.9 vs 31.2), not on two overlapping rho intervals; the
   embedder comparison does not survive its own interval either way.
+- **The delivery measurement has a ground truth only because the corpus is synthetic.**
+  `retrieval_quality.py` scores the evidence block against the generator's own record of which
+  sentence it wrote to prove which skill, so "delivered" is a fact about *this* corpus, not a
+  general relevance metric - it measures presence, not quality, and cannot say whether a bullet
+  the candidate never wrote would have helped. It counts every evidence bullet as relevant to
+  its own skill (which is why the rubric share is across all proven bullets, not per
+  requirement), it is **n = 30** because the hand-written CVs have no provenance, and its
+  whole-bullet recall under-credits a reader who can infer across a passage boundary - that is
+  what the `any` column (33.6% / 44.7%) is next to `whole` (25.3% / 34.1%) for. The over-claim
+  finding is bounded the same way: it compares the model's `matched` list to the `none` markers
+  printed in its own prompt, so it documents an unfollowed instruction, not a fabricated skill.
+- **Where the headroom is, and what it was not tested against.** Under the shipped budget the
+  retriever hands the scorer one passage carrying a quarter (TF-IDF) to a third (dense) of the
+  CV's proof, and the quantized model ranks *at* the ceiling that proof allows - 0.721 measured
+  against 0.732 achievable on the same 30 CVs, with the other 0.268 of rho belonging to the
+  evidence block. The fix that points at is the chunk/budget geometry, not the quantization, and
+  `retrieval_quality.log` prices it: removing the word cap lifts the ceiling to 0.975 / 1.000 at
+  0.81 / 0.95 of the document pasted, i.e. the compression that makes this "RAG" is what removes
+  the evidence. **This was not run as an experiment** - no model was scored at the uncapped
+  budget, so the 0.975 is a ceiling, not a result.
 - The dataset's text defect is **fixed and re-measured, and the fix was cosmetic** - which is
   now a measurement rather than an assumption. 10 of the 30 generated resumes had experience
   ranges running backwards (`Experience: BI Analyst (fintech, 2023-2022)`) because the

@@ -177,6 +177,22 @@ still fails to separate them.
 - The rho ceilings (0.857 / 0.864) as a criticism of the quantized model. They come from the
   number of distinct scores the scorer emits - 5 and 4 across 33 candidates - so they cap any
   scorer on that output scale, including an unquantized one.
+- Any `retrieval_quality.log` ceiling (0.732 / 0.804 / 0.975 / 1.000) as a model result or as
+  "our method achieves rho 0.975". It is the rubric re-applied to the evidence that arrived, so
+  it bounds a perfect reader of that block - quantized, unquantized or heuristic. The quotable
+  form is a *gap*: Q4_K_M measured 0.721 on the same 30 TF-IDF CVs whose ceiling is 0.732.
+- Any `retrieval_quality.log` row as n = 33. It is **n = 30**: the three hand-written CVs have
+  no provenance, because they were not generated, and are excluded from every row in it.
+- The over-claim counts (24 of 30 tfidf, 15 of 30 dense) as "the model invents skills the
+  candidate does not have". The comparison is the model's `matched` list against the `none`
+  markers printed in its own prompt - it documents an unfollowed citation instruction, not the
+  candidate's abilities. (The stricter whole-bullet reading, 24 / 27 of 30, belongs with the same
+  caveat.)
+- "The floor does nothing" taken from the dense row (2,311 pasted words with and without it).
+  On that embedder it changes the `none` markers rather than the text; its effect on ranking is
+  the left-to-right span of the floor curve in README ("The relevance floor is what made RAG
+  work"), measured there, not here. Equally, do not read the floor's rho gain as evidence it
+  *found* more proof - on tfidf recall moves 0.5 of a percentage point.
 
 ## Prompt inflation, measured without an LLM
 
@@ -239,6 +255,24 @@ committed file backed it. Re-deriving it from the git-recovered code gives 1,671
 | power against Δrho +0.083 (embedders) | 15.1%, 80% needs >250 | the null is *invisible*, not zero |
 | power against Δrho −0.062 (dense LLM vs baseline) | 9.6%, 80% needs >250 | same |
 | rho ceiling per scorer | 0.857 / 0.864 / 0.962 / 0.974 | output granularity caps ranking before n does |
+
+## Retrieval delivery, measured without an LLM
+
+| file | what it is |
+|---|---|
+| `retrieval_quality.log` | `python retrieval_quality.py` - what the evidence block actually contains, measured against the generator's own record of which sentence proves which skill. Per condition and per embedder: **1.03 passages per CV (tfidf) / 1.13 (dense)**, 68.9 / 77.0 pasted words, **25.3% / 34.1%** of the CV's proof delivered whole, **3.80 / 2.27 of 6 requirements printed as `none`**, and the score ceiling each allows. ~25 s (measured **24.7 s**), loads torch for the dense side, no GGUF. Determinism verified by a direct stdout comparison: a fourth invocation produced **9,746 bytes, 107 lines, 0 differing** from the committed file (run it as `python retrieval_quality.py > retrieval_quality.log`, not `2>&1` - the dense side's `Loading weights` progress bars belong to stderr and would otherwise land in the log) Reads the committed `per_resume_v2*.csv` to check its replay against the runs that produced them, so it is a re-analysis, not a new measurement |
+| `retrieval_quality.py` | the script. Four printed self-checks, all hard failures: the replay reproduces **30/30** shipped resumes word-for-word, **all 444** provenance bullets are found inside their own document, `rubric(credits) == labels.csv` for **30/30**, and the re-derived passage set matches `per_resume_v2*.csv`'s own `passages` column on **30/30 for both embedders**. The reference row is a fifth check in disguise: pasting every chunk *must* recall 100% of the bullets at exactly 1.00 of the document, and that assertion is what caught the un-merged-overlap bug (8,719 billed against 7,159 words) |
+| `data/generate_dataset.py` | `build()` is now the single construction path and returns `(name, tier, credits, text, provenance)` per resume; `main()` writes only what it returns. Provenance costs nothing in the RNG stream, so the corpus is unchanged - verified by regenerating into a temp directory: 30 files, **0 differing** |
+
+**The five numbers it produces, and where each is quotable:**
+
+| quantity | value | quotable as |
+|---|---|---|
+| passages kept per CV | 1.03 tfidf / 1.13 dense | "single-passage retrieval", and an independent route to `prompt_inflation.log`'s 69 evidence words |
+| proven bullets delivered whole | 25.3% tfidf / 34.1% dense | the evidence budget's information loss, before any model is involved |
+| requirements marked `none` per CV | 3.80 tfidf / 2.27 dense (0.37 / 0.30 with the floor off) | what the floor actually changes: the prompt's claim about its own coverage |
+| score ceiling | 0.732 / 0.804 shipped, 0.975 / 1.000 uncapped, 1.000 full | the rubric applied to what arrived - bounds *any* reader of that block |
+| shortfall split (rho) | tfidf 0.268 evidence + 0.011 model; dense 0.196 + 0.157 | retrieval is the binding constraint on tfidf, and the only place either side has headroom |
 
 ## Scratch
 

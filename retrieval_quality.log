@@ -1,0 +1,107 @@
+self-check: the replay reproduces 30/30 shipped resumes word-for-word, all 444 provenance bullets are found in their own document, and rubric(credits) == labels.csv for 30/30
+requirement map: 6 JD bullets <-> python_pandas, ml_sklearn, sql, visualization, nlp_llm, communication, keyword-asserted
+ground truth: 217 evidence bullets over 86 proven skill-instances, 227 filler bullets, mean 7.2 evidence bullets per CV; the 3 hand-written CVs have no provenance and are excluded
+
+embedder: tfidf | sim_floor: 0.024 | top_k: 3 | chunks: 111 | budget: 120 of a 300-word CV
+   condition                    bullets   whole     any    reqs  blank   pasted   pass   rubric   known  of doc
+   rag, floor as shipped          217   25.3%  33.6%      43   3.80     2067   1.03     37.2%    68.2%    0.29
+   rag, floor 0.0 (no filter)     217   25.8%  34.6%      44   0.37     2239   1.13     35.2%    67.0%    0.31
+   rag, shipped floor, no cap     217   79.7%  86.2%      78   3.07     5766   2.80     39.2%    71.9%    0.81
+   full context (reference)       217  100.0% 100.0%      86      -     7159      -     38.1%    72.9%    1.00
+   whole = the bullet sits inside one pasted passage; any = some of it does; blank = requirements per CV
+   whose prompt line reads `none`; pass = passages kept per CV; rubric = share of pasted words that
+   are evidence bullets; known = that plus filler and the Skills line; of doc = pasted / document
+   words; reqs = the 86 proven skill-instances whose own bullet arrived whole
+   the floor removed 172 of 2239 pasted words (7.7%) and left 3.80 vs 0.37 requirements per CV without a passage
+
+   the budget asks for 120 words on a 238-word CV but a chunk is 90 and two
+   do not fit, so the block is one passage on average (1.03): 68.9 pasted words per CV. `prompt_inflation.log`
+   counts 69 the same way from the prompt side, on all 33 resumes.
+
+2) the ceiling this retrieval puts on any scorer, against what the study got
+   rag, floor as shipped        ceiling rho +0.732 tau +0.623 (distinct 14, MAE 16.03) | Q4_K_M +0.721 / MAE 24.80, no-LLM +0.299 / MAE 55.30 on these same 30
+   rag, floor 0.0 (no filter)   ceiling rho +0.721 tau +0.626 (distinct 13, MAE 14.73) | Q4_K_M +0.721 / MAE 24.80, no-LLM +0.299 / MAE 55.30 on these same 30
+   rag, shipped floor, no cap   ceiling rho +0.975 tau +0.930 (distinct 15, MAE 3.13) | Q4_K_M +0.721 / MAE 24.80, no-LLM +0.299 / MAE 55.30 on these same 30
+   full context (reference)     ceiling rho +1.000 tau +1.000 (distinct 13, MAE 0.00) | Q4_K_M +0.721 / MAE 24.80, no-LLM +0.299 / MAE 55.30 on these same 30
+   the ceiling is not a model result: it is the rubric applied to what the retriever
+   delivered, so it bounds any reader of that block. Splitting the shortfall on these 30:
+   +0.268 rho is the evidence's (1.000 -> +0.732) and +0.011 is the model's
+   (+0.732 -> +0.721). On MAE the model gives away more: 16.03 for a
+   faithful reader of the same block against 24.80 measured.
+
+3) what the prompt told the model, against what the model reported
+   replay check: the passages this script selects match per_resume_v2.csv's own `passages` column on 30/30 generated resumes (mean 1.03 passages per CV)
+   0 of 116 `matched` entries are not one of the six requirement strings, so the counts
+   below use the requirement-scoped ones (mean 3.87 claimed per CV)
+   the prompt marked 3.80 of 6 requirements per CV as having no passage at all, and on 24 of 30 CVs the model reported more requirements matched than that leaves:
+      r01_weak.txt     matched 5 > 1 requirements with evidence in the prompt (5 marked none)
+      r02_strong.txt   matched 5 > 4 requirements with evidence in the prompt (2 marked none)
+      r03_medium.txt   matched 5 > 3 requirements with evidence in the prompt (3 marked none)
+      r05_strong.txt   matched 4 > 2 requirements with evidence in the prompt (4 marked none)
+      r07_medium.txt   matched 5 > 2 requirements with evidence in the prompt (4 marked none)
+      r08_strong.txt   matched 5 > 3 requirements with evidence in the prompt (3 marked none)
+      r09_medium.txt   matched 5 > 2 requirements with evidence in the prompt (4 marked none)
+      r10_medium.txt   matched 5 > 3 requirements with evidence in the prompt (3 marked none)
+   on the stricter reading - a requirement counts only if its own evidence bullet is
+   pasted whole - the model matched more than the prompt carried on 24 of 30 CVs
+   (mean claimed 3.87 vs mean whole-bullet evidenced 1.43)
+
+embedder: dense | sim_floor: 0.24 | top_k: 3 | chunks: 111 | budget: 120 of a 300-word CV
+   condition                    bullets   whole     any    reqs  blank   pasted   pass   rubric   known  of doc
+   rag, floor as shipped          217   34.1%  44.7%      51   2.27     2311   1.13     47.0%    72.4%    0.32
+   rag, floor 0.0 (no filter)     217   34.1%  44.7%      51   0.30     2311   1.13     47.0%    72.4%    0.32
+   rag, shipped floor, no cap     217   97.2%  98.2%      86   1.10     6809   3.43     39.1%    73.5%    0.95
+   full context (reference)       217  100.0% 100.0%      86      -     7159      -     38.1%    72.9%    1.00
+   whole = the bullet sits inside one pasted passage; any = some of it does; blank = requirements per CV
+   whose prompt line reads `none`; pass = passages kept per CV; rubric = share of pasted words that
+   are evidence bullets; known = that plus filler and the Skills line; of doc = pasted / document
+   words; reqs = the 86 proven skill-instances whose own bullet arrived whole
+   the floor changed no pasted text at all on this embedder (2311 words either way) and moved only the citation markers:
+   requirements left with no passage went 0.30 -> 2.27 per CV. Whatever the floor's swept
+   optimum buys, it buys it in what the prompt claims to be evidenced, not in what it contains.
+
+   the budget asks for 120 words on a 238-word CV but a chunk is 90 and two
+   do not fit, so the block is one passage on average (1.13): 77.0 pasted words per CV. `prompt_inflation.log`
+   counts 69 the same way from the prompt side, on all 33 resumes.
+
+2) the ceiling this retrieval puts on any scorer, against what the study got
+   rag, floor as shipped        ceiling rho +0.804 tau +0.699 (distinct 13, MAE 11.00) | Q4_K_M +0.648 / MAE 16.53, no-LLM +0.691 / MAE 25.87 on these same 30
+   rag, floor 0.0 (no filter)   ceiling rho +0.804 tau +0.699 (distinct 13, MAE 11.00) | Q4_K_M +0.648 / MAE 16.53, no-LLM +0.691 / MAE 25.87 on these same 30
+   rag, shipped floor, no cap   ceiling rho +1.000 tau +1.000 (distinct 13, MAE 0.00) | Q4_K_M +0.648 / MAE 16.53, no-LLM +0.691 / MAE 25.87 on these same 30
+   full context (reference)     ceiling rho +1.000 tau +1.000 (distinct 13, MAE 0.00) | Q4_K_M +0.648 / MAE 16.53, no-LLM +0.691 / MAE 25.87 on these same 30
+   the ceiling is not a model result: it is the rubric applied to what the retriever
+   delivered, so it bounds any reader of that block. Splitting the shortfall on these 30:
+   +0.196 rho is the evidence's (1.000 -> +0.804) and +0.157 is the model's
+   (+0.804 -> +0.648). On MAE the model gives away more: 11.00 for a
+   faithful reader of the same block against 16.53 measured.
+
+3) what the prompt told the model, against what the model reported
+   replay check: the passages this script selects match per_resume_v2_dense.csv's own `passages` column on 30/30 generated resumes (mean 1.13 passages per CV)
+   0 of 135 `matched` entries are not one of the six requirement strings, so the counts
+   below use the requirement-scoped ones (mean 4.50 claimed per CV)
+   the prompt marked 2.27 of 6 requirements per CV as having no passage at all, and on 15 of 30 CVs the model reported more requirements matched than that leaves:
+      r01_weak.txt     matched 5 > 2 requirements with evidence in the prompt (4 marked none)
+      r02_strong.txt   matched 5 > 4 requirements with evidence in the prompt (2 marked none)
+      r03_medium.txt   matched 5 > 2 requirements with evidence in the prompt (4 marked none)
+      r05_strong.txt   matched 5 > 4 requirements with evidence in the prompt (2 marked none)
+      r06_weak.txt     matched 5 > 3 requirements with evidence in the prompt (3 marked none)
+      r07_medium.txt   matched 5 > 4 requirements with evidence in the prompt (2 marked none)
+      r08_strong.txt   matched 5 > 3 requirements with evidence in the prompt (3 marked none)
+      r10_medium.txt   matched 5 > 4 requirements with evidence in the prompt (2 marked none)
+   on the stricter reading - a requirement counts only if its own evidence bullet is
+   pasted whole - the model matched more than the prompt carried on 27 of 30 CVs
+   (mean claimed 4.50 vs mean whole-bullet evidenced 1.70)
+
+What this does and does not license:
+ - Provenance is the generator's own record of which sentence demonstrates which
+   skill, so 'delivered' is a fact about this corpus, not a proxy for relevance.
+   It cannot say whether an evidence bullet the candidate never wrote would have
+   helped, and it cannot judge evidence quality - only presence.
+ - The ceiling credits a skill when a *whole* bullet reached one passage. A reader
+   can also infer from a bullet split across two passages, which is why 'any' sits
+   next to 'whole', and from a bullet phrased for another requirement.
+ - Recall counts every evidence bullet as relevant to its own skill. The retriever
+   is not wrong to surface a strong candidate's SQL line for a visualisation
+   requirement; that is why 'rubric share' is across all proven bullets.
+ - n = 30 resumes here, not 33: the hand-written CVs are illustrations of the
+   pipeline, and their provenance was never generated.

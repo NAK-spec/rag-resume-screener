@@ -97,6 +97,13 @@ Step "statistical power of the design (no LLM)" {
     & $py power_analysis.py | Tee-Object "$OutPrefix`_power.log"
 } "seconds, numpy only"
 
+# What the retriever hands the scorer, measured against the generator's own record of which
+# sentence proves which requirement. Reads the committed per_resume_v2*.csv to check its replay
+# against the run that produced them, same as the two stages above.
+Step "retrieval delivery against provenance (no LLM)" {
+    & $py retrieval_quality.py | Tee-Object "$OutPrefix`_retrieval.log"
+} "~25 s, loads torch for the dense side, no GGUF"
+
 if (-not $WithModel -and ($WithDense -or $WithBias)) {
     # -WithDense / -WithBias without -WithModel would otherwise fall off the `return` below
     # and report success having measured nothing.

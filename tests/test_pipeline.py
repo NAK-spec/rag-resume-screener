@@ -350,6 +350,41 @@ def test_the_power_simulator_is_calibrated():
     assert at(c, c["ceiling"] + 0.5)["clamped"], "an impossible target was accepted silently"
 
 
+def test_the_provenance_replay_is_the_ground_truth_of_retrieval_quality():
+    """retrieval_quality.py measures delivery against bullets the generator says it wrote, so
+    two properties have to hold before any recall number means anything: every bullet must be
+    findable in its own document (otherwise the replay and the corpus are different text), and
+    pasting the whole document must reproduce the rubric score that labels.csv holds for that
+    CV (otherwise the span arithmetic or the rubric link is wrong). Neither needs an embedder,
+    so this runs in about a second."""
+    from retrieval_quality import Ground, ceiling_of, load_generator, measure
+
+    gd = load_generator()
+    rows = gd.build(30, 7)
+    assert len(rows) == 30
+    exact, labels_ok = 0, 0
+    for name, _tier, credits, text, prov in rows:
+        g = Ground(name, clean(text), credits, prov, gd.TYPOS)
+        assert not g.missing, f"{name}: {g.missing[0][1][:50]!r} is not in its own document"
+        # every bullet lives on exactly one line, which is what makes a span a span
+        for (s, e), raw in g.bullets + [(f, f) for f in g.filler]:
+            assert g.words[s] == "-", f"{name}: bullet does not start at a list marker"
+        whole_doc = [(0, g.n_words)]
+        ceiling = ceiling_of(g, measure(g, whole_doc), gd.rubric_score)
+        labels_ok += int(ceiling == gd.rubric_score(credits))
+        exact += int(all(any(a <= s and e <= b for a, b in whole_doc)
+                         for (s, e), _ in g.bullets))
+    assert exact == 30 and labels_ok == 30, (exact, labels_ok)
+
+    # the span helpers the word counts are built from
+    from retrieval_quality import covered, merge
+
+    assert merge([(0, 90), (70, 160), (140, 185)]) == [(0, 185)]
+    assert merge([(0, 10), (20, 30)]) == [(0, 10), (20, 30)]
+    assert covered((5, 15), [(0, 10), (20, 30)]) == 5
+    assert covered((0, 100), [(0, 185)]) == 100, "the reference case must never lose a word"
+
+
 def _metric_row(scores, latencies=None):
     latencies = latencies or [0.5] * len(scores)
     results = [SimpleNamespace(resume_id=f"r{i}.txt", score=s, score_coverage=float(s),

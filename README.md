@@ -144,11 +144,18 @@ and top-k; the CPU is the only thing that differs, which is why its rho is read 
 control job of the same run and not against `results_v2.csv`. It loads the model only after a
 retrieval-only pass reproduces the 45/10 cell of `geometry_sweep.log`.
 
-The app's sidebar has a **Retriever** control, `TF-IDF (study headline)` (default) or
-`Dense (MiniLM)`, so a demo can reproduce the configuration behind the 0.753 rather than
-always running dense. Pick **Retrieval-only (no LLM)** in the model select to browse the
-ranking and the per-requirement evidence without loading the 1.1 GB GGUF; the GGUF is only
-read when "Screen candidates" is pressed.
+The app is three pages. **Screen** carries the run configuration - model select, a
+`rag`/`full` segmented control, the chunks-per-requirement slider, and a **Retriever** pill row
+defaulting to `TF-IDF (study headline)` so a demo reproduces the configuration behind the 0.753
+rather than always running dense. **Candidates** lists the run that just happened, ranked, one
+score bar per row, and an *Open* drawer with the requirement -> passage map the prompt actually
+printed, including the `[i] none` rows and an over-claim warning when the answer calls a
+requirement matched that arrived with no passage. **Study config** is read-only: the constants in
+`rag/config.py`, which GGUFs are on disk, and which committed artifact carries which number.
+
+Pick **Retrieval-only (no LLM)** in the model select - the default - to browse the ranking and
+the per-requirement evidence without loading the 1.1 GB GGUF; the GGUF is only read when
+"Screen candidates" is pressed.
 
 **Every committed measurement file - which embedder, which floor, which of them are
 duplicates or superseded - is indexed in [ARTIFACTS.md](ARTIFACTS.md).** Read it before

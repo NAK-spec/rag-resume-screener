@@ -1,0 +1,32 @@
+# Project theme. Without this the app inherits whatever color preference the machine
+# has, which puts one theme's text on another theme's canvas - invisible headings,
+# black inputs. Pin it here, not in CSS.
+# Restart the server after editing: config.toml is read at startup.
+
+[theme]
+base = "dark"
+primaryColor = "#34A98A"
+backgroundColor = "#0F1418"
+secondaryBackgroundColor = "#171E24"
+textColor = "#E6EDF3"
+linkColor = "#5BC8A8"
+borderColor = "#26303A"
+baseRadius = "14px"
+buttonRadius = "10px"
+showWidgetBorder = true
+showSidebarBorder = true
+font = "sans serif"
+codeFont = "Consolas"
+codeBackgroundColor = "#1D2731"
+codeTextColor = "#9FD8C4"
+metricValueFontSize = "1.8rem"
+dataframeHeaderBackgroundColor = "#1B242C"
+
+# The rail sits a step below the canvas so cards read as lifted.
+[theme.sidebar]
+backgroundColor = "#0B1013"
+secondaryBackgroundColor = "#171E24"
+borderColor = "#26303A"
+
+[browser]
+gatherUsageStats = false

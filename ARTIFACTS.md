@@ -109,7 +109,12 @@ So `results_v2_dense.csv` being 12.6 s and `results_v2.csv` 13.3 s must **not** 
 
 The two grids are not comparable value-for-value: TF-IDF unit-vector cosine and MiniLM cosine
 live on scales ~10x apart, which is the entire reason `SIM_FLOOR` is a dict. Neither sweep
-involved the LLM.
+involved the LLM, and both fitted the floor at chunk 90/20 - the geometry the runs used, not the
+geometry the frontier recommends. `geometry_sweep.log` sections 8-9 re-sweep each floor ladder
+under all six chunkings: the committed values sit within 0.001 of the best floor their own
+chunking can get at 2 of 6 (tfidf) and 5 of 6 (dense), the larger gaps appear only in the rows
+that paste the CV, and the rho-best chunking at ceiling 0.90 is unchanged - so no `SIM_FLOOR`
+here is superseded by that.
 
 ## Fairness audit
 
@@ -196,10 +201,12 @@ still fails to separate them.
 - Any rho in `geometry_sweep.log` as a model score. No model ran at any of those cells; each rho
   is the ceiling the delivered block allows, which bounds a perfect reader. "chunk 45/10 scores
   0.916" is false - it *permits* 0.916.
-- The 45/10 / 150/30 rows as tuned configurations. `SIM_FLOOR` was swept at 90/20 only, so those
-  rows compare a geometry against a threshold it was never fitted to; the log repeats every
-  chunking at floor 0 for exactly this reason, and the knee survives there too (45/10: +0.914 at
-  204.6 prompt words). Quote it as the cheapest measured next experiment, not as the new default.
+- The 45/10 / 150/30 rows as tuned configurations or as a new default. `SIM_FLOOR` was fitted at
+  90/20 only, so sections 1-7 compare the other chunkings against a threshold they were never
+  tuned to; sections 8-9 close that by re-sweeping the floor under all six chunkings, and the
+  0.90 knee still wins the same chunking on its own floor (tfidf 45/10 @ 0.024, dense 150/30 @
+  0.300). That makes the recommendation *survive* recalibration - it does not make it a scored
+  result: no model ran at those cells, so quote them as the cheapest measured next experiment.
 - "Top-k does not matter" from section 3. It does not move the ceiling **while the word budget
   keeps one passage per CV**; that is a statement about this budget, and the same table shows the
   budget lifting the ceiling from 0.732 to 0.975 on the same retriever.
@@ -291,10 +298,10 @@ committed file backed it. Re-deriving it from the git-recovered code gives 1,671
 
 | file | what it is |
 |---|---|
-| `geometry_sweep.log` | `python geometry_sweep.py` - the frontier the two-point delivery measurement implies: **one factor at a time** across 6 chunkings, 7 word budgets and 5 top-k depths (**18 cells per embedder at its shipped floor, 24 including the floor-0 repeats**), each priced in pasted words and **real prompt length** (`build_prompt`) and scored on delivered proof and the rubric ceiling that proof allows, plus the sorted frontier and the cheapest cell reaching ceiling 0.90 per axis. ~1 min (measured **57 s** cold and **77 s** warm), loads torch for the dense side, no GGUF; determinism verified directly - two invocations were **byte-identical** to each other and to this committed file (**194 lines, 18,437 bytes**), and the count is 18 rows of which **16 are distinct configurations** (the shipped point appears on all three axes). Sections 1-4 per embedder, 5-7 the frontier and its reading. Run it as `python geometry_sweep.py > geometry_sweep.log`, not `2>&1`: the dense side's `Loading weights` bars and the HFHub warning belong to stderr |
-| `geometry_sweep.py` | the script. Four hard-failing self-checks per embedder: filtering the un-floored top-k at the floor equals `index.search` on 36/36 requirement queries; the index holds 111 chunks over all 33 CVs (the committed vocabulary, which is what makes TF-IDF top-k comparable at all); one chunk per CV at floor 0 delivers 100% of the bullets at exactly 1.00 of the document words; and the shipped cell reproduces `retrieval_quality.log` plus the `prompt_words` / `passages` columns of `per_resume_v2*.csv` on 30/30 CVs. Geometry changes are rebuilt one at a time because `Embedder.fit` re-fits the shared vectorizer in place and would silently invalidate the previous index |
+| `geometry_sweep.log` | `python geometry_sweep.py` - the frontier the two-point delivery measurement implies: **one factor at a time** across 6 chunkings, 7 word budgets and 5 top-k depths (**18 cells per embedder at its shipped floor, 24 including the floor-0 repeats**), each priced in pasted words and **real prompt length** (`build_prompt`) and scored on delivered proof and the rubric ceiling that proof allows, plus the sorted frontier and the cheapest cell reaching ceiling 0.90 per axis; sections 8-9 then re-sweep the floor under **every** chunking (9 values × 6, **66 cells per embedder, 132 in the run**). ~1-2 min (measured **54 s**, **55 s**, **55 s** and **59 s** warm, **2 min 10 s** cold; `--tfidf-only` **33 s**), loads torch for the dense side, no GGUF; determinism verified directly - **four** invocations were **byte-identical** to each other and to this committed file (**293 lines, 28,712 bytes**), and the geometry count is 18 rows of which **16 are distinct configurations** (the shipped point appears on all three axes). Sections 1-4 per embedder, 5-7 the frontier and its reading, 8-9 the floor re-fitted per chunking. Run it as `python geometry_sweep.py > geometry_sweep.log`, not `2>&1`: the dense side's `Loading weights` bars and the HFHub warning belong to stderr |
+| `geometry_sweep.py` | the script. Four hard-failing self-checks per embedder: filtering the un-floored top-k at the floor equals `index.search` on 36/36 requirement queries; the index holds 111 chunks over all 33 CVs (the committed vocabulary, which is what makes TF-IDF top-k comparable at all); one chunk per CV at floor 0 delivers 100% of the bullets at exactly 1.00 of the document words; and the shipped cell reproduces `retrieval_quality.log` plus the `prompt_words` / `passages` columns of `per_resume_v2*.csv` on 30/30 CVs. Geometry changes are rebuilt one at a time because `Embedder.fit` re-fits the shared vectorizer in place and would silently invalidate the previous index - which is why the floor ladder is measured inside the same loop that owns the index, and why a chunking missing from the ladder aborts the run |
 
-**The five numbers it produces, and where each is quotable:**
+**The six numbers it produces, and where each is quotable:**
 
 | quantity | value | quotable as |
 |---|---|---|
@@ -303,6 +310,7 @@ committed file backed it. Re-deriving it from the git-recovered code gives 1,671
 | 45/10 against shipped | +0.184 ceiling rho for +22.7 prompt words (tfidf), +0.084 for +24.6 (dense) | the cheapest next experiment, priced - a rerun at 45/10, not a new model |
 | composition vs volume | 45/10 delivers 24.0% whole against shipped 25.3%, 44 of 86 skill-instances against 43, and ranks 0.184 of rho better | recall percentage is not the delivery metric; passage spread across requirements is |
 | floor cost across the 6 chunkings | 0.5 pts of proof at shipped 90/20 (tfidf) / 0.0 (dense); worst anywhere **10.1** pts, at one chunk per CV, where `none` rises to 3.97/CV and **5 of 30 CVs get no passage at all** | the floor is claim discipline at every geometry; only the degenerate one lets it starve a CV outright |
+| floor re-fitted per chunking (sections 8-9) | the committed `SIM_FLOOR` is the rho-best at **1 of 6** chunkings on tfidf and **3 of 6** on dense, and within 0.001 of the best at 2 / 5; the largest gain a per-geometry re-fit buys is **+0.199** of ceiling (tfidf, one chunk per CV) against **+0.002** (dense, 45/10); the shipped chunking gains **+0.000** on both embedders; ceiling 0.90 still belongs to **45/10 @ 0.024** (196.1 words) and **150/30 @ 0.300** (209.4 words) | the geometry knee is not an artefact of a threshold tuned at 90/20, and nothing here replaces `SIM_FLOOR` - re-fitting it for another chunking would need a new model run to mean anything |
 
 ## Scratch
 

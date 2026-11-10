@@ -105,12 +105,13 @@ Step "retrieval delivery against provenance (no LLM)" {
 } "~25 s, loads torch for the dense side, no GGUF"
 
 # The same delivery measurement as a trade-off instead of two points: chunk length, overlap,
-# top-k and the word budget, each against cost. Its two self-checks read the *committed*
-# retrieval_quality.log and per_resume_v2*.csv by name, so a fresh run proves the shipped cell
-# still is the one those artifacts describe; the other cells are bounds, not results.
+# top-k, the word budget and a nine-value floor ladder under each chunking, each against cost.
+# Its self-checks read the *committed* retrieval_quality.log and per_resume_v2*.csv by name, so a
+# fresh run proves the shipped cell still is the one those artifacts describe; the other cells
+# are bounds, not results, and no floor in rag/config.py is changed by them.
 Step "retrieval geometry frontier (no LLM)" {
     & $py geometry_sweep.py | Tee-Object "$OutPrefix`_geometry.log"
-} "~1 min, loads torch for the dense side, no GGUF"
+} "~1-2 min, loads torch for the dense side, no GGUF"
 
 if (-not $WithModel -and ($WithDense -or $WithBias)) {
     # -WithDense / -WithBias without -WithModel would otherwise fall off the `return` below

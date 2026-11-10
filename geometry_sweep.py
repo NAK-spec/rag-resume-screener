@@ -17,11 +17,15 @@ Three things are reported per cell, all in the currency the thesis already spend
               that block could have produced, and its rank correlation with labels.csv
 
 It is a measurement of the retrieval stage, so every number is a bound on a scorer rather than
-a score: no model was run at any of these geometries, and the shipped floors were swept at
-chunk 90 only (`sweep_floor.py`), which is why each cell also appears at floor 0.
+a score: no model was run at any of these geometries. The shipped floors were swept at chunk 90
+only (`sweep_floor.py`), so each cell also appears at floor 0 (sections 4 and 6) and the floor
+itself is re-swept under every chunking (sections 8 and 9).
 
-    python geometry_sweep.py                 # both embedders, ~1 min (dense loads torch)
-    python geometry_sweep.py --tfidf-only    # ~5 s, no torch
+    python geometry_sweep.py                 # both embedders, ~2 min (dense loads torch)
+    python geometry_sweep.py --tfidf-only    # ~35 s, no torch
+
+Sections 1-4 sweep the four dials per embedder, 5-7 read the frontier and its units, 8-9
+re-sweep the similarity floor under every chunking and re-read the frontier there.
 """
 import argparse
 import re
@@ -67,9 +71,31 @@ TOP_KS = [1, 2, TOP_K, 5, 8]
 BUDGETS = [("fn (shipped)", None), ("60", 60), ("120", 120), ("180", 180),
            ("240", 240), (str(MAX_EVIDENCE_WORDS), MAX_EVIDENCE_WORDS), ("no cap", 10 ** 6)]
 
+# `sweep_floor.py` fitted SIM_FLOOR at the shipped chunking, so every geometry row above is a
+# geometry compared against a threshold it was never tuned to. This ladder re-sweeps the floor
+# under each of the six chunkings, in that embedder's own scale and never past its SIM_ANCHORS
+# ceiling (rag/llm.py: the score the fallback mapping calls a perfect match, so a floor above it
+# would filter the evidence the rubric itself treats as 100%), with the committed value included
+# so the shipped row is one of the candidates and the re-fitting is checkable rather than
+# assumed.
+LADDER = {"tfidf": [0.0, 0.008, 0.016, 0.024, 0.032, 0.040, 0.056, 0.072, 0.080],
+          "dense": [0.0, 0.05, 0.10, 0.20, 0.24, 0.30, 0.36, 0.45, 0.55]}
+
 
 def cap_of(spec, n_words):
     return evidence_budget(n_words) if spec is None else spec
+
+
+def best_floor(ladder, label, floors):
+    """The floor with the highest ceiling rho under one chunking; ties go to the shorter prompt.
+
+    `sweep_floor.py` picked SIM_FLOOR the same way - widest strong-weak gap that still returns
+    passages - but only at the shipped chunking, so this is the same rule applied per geometry.
+    """
+    ranked = sorted(((s["rho"] if not np.isnan(s["rho"]) else float("-inf"), -s["prompt"], fl)
+                     for fl in floors for s in [ladder[(label, fl)]]), reverse=True)
+    chosen = ranked[0][2]
+    return chosen, ladder[(label, chosen)]
 
 
 class Geometry:
@@ -202,6 +228,7 @@ def main():
         pers = {kind: _rag_dump(fname) for kind, fname in PER_RESUME.items()}
         kinds = list(PER_RESUME)
     all_cells = {}
+    all_ladder = {}
     shipped_cells = {}
     for kind in kinds:
         embedder = embedder_for(kind)
@@ -242,12 +269,23 @@ def main():
         for k in TOP_KS:
             cells[("top_k", str(k), floor)] = summarize(
                 evaluate_cell(base, grounds, reqs, k, None, floor, kind), gold)
+        floor_ladder = {}
         for label, size, overlap in GEOMETRIES:
             geo = (base if (size, overlap) == (CHUNK_WORDS, CHUNK_OVERLAP)
                    else build_geometry(kind, resumes_all, size, overlap))
             for fl in (floor, 0.0):
                 cells[("chunk", label, fl)] = summarize(
                     evaluate_cell(geo, grounds, reqs, TOP_K, None, fl, kind), gold)
+            # the same geo must be measured before the next one is built: `Embedder.fit`
+            # re-fits the shared vectorizer in place and invalidates this index's matrix
+            for fl in LADDER[kind]:
+                floor_ladder[(label, fl)] = cells.get(("chunk", label, fl)) or summarize(
+                    evaluate_cell(geo, grounds, reqs, TOP_K, None, fl, kind), gold)
+        for label, _s, _o in GEOMETRIES:
+            if ("chunk", label, floor) not in cells:
+                raise SystemExit(f"the ladder skipped {label}, so its floor is unmeasured")
+        all_ladder[kind] = floor_ladder
+
         # the geometry-independent invariant: one chunk per CV, no floor, is the whole document
         whole_cv = cells[("chunk", GEOMETRIES[-1][0], 0.0)]
         if whole_cv["whole"] < 1.0 or abs(whole_cv["of_doc"] - 1.0) > 1e-9:
@@ -438,15 +476,136 @@ def main():
                   f"{max(none_gain):.2f} per CV - so at every geometry it buys claim "
               f"discipline rather than evidence")
 
+    # --- 8) the floor re-swept under each chunking -----------------------------------------
+    print("\n8) the floor re-swept under every chunking: SIM_FLOOR was fitted at "
+          f"{CHUNK_WORDS}/{CHUNK_OVERLAP} only (`sweep_floor.py`), so the other five chunkings "
+          "in sections 1-7 are each measured against a threshold tuned for a geometry they are "
+          "not. Same rule as that sweep - the floor with the best ceiling rho, ties to the "
+          "shorter prompt - applied per chunking.")
+    for kind in kinds:
+        ladder, committed = LADDER[kind], SIM_FLOOR[kind]
+        best = {label: best_floor(all_ladder[kind], label, ladder) for label, *_ in GEOMETRIES}
+        print(f"\n   {kind}: floor ladder "
+              + " ".join(f"{fl:.3f}" for fl in ladder))
+        for title, get in (("ceiling rho", lambda s: f"{s['rho']:>+6.3f}"),
+                           ("prompt words", lambda s: f"{s['prompt']:>6.1f}")):
+            print(f"\n   {title} at each floor (`*` = the committed {committed}, "
+                  "`^` = this row's best ceiling rho):")
+            print(f"   {'chunking':<26}"
+                  + "".join(f"{fl:>6.3f}{'*' if fl == committed else ' '} " for fl in ladder))
+            for label, *_ in GEOMETRIES:
+                print(f"   {label:<26}" + "".join(
+                    f"{get(all_ladder[kind][(label, fl)])}"
+                    f"{'^' if fl == best[label][0] else ' '} " for fl in ladder))
+        n_opt = sum(1 for label, *_ in GEOMETRIES if best[label][0] == committed)
+        print(f"\n   the committed floor is the rho-best at {n_opt} of {len(GEOMETRIES)} "
+              f"chunkings; what moving it to this chunking's own best would change:")
+        for label, _s, _o in GEOMETRIES:
+            bfl, b = best[label]
+            c = all_ladder[kind][(label, committed)]
+            if bfl == committed:
+                print(f"   {label:<26} unchanged: rho {c['rho']:+.3f} at {c['prompt']:.1f} "
+                      f"prompt words, {c['whole']:.1%} of the generator's proof delivered")
+            else:
+                gain = b["rho"] - c["rho"]
+                say = (f"rho {c['rho']:+.3f} -> {b['rho']:+.3f}" if abs(gain) >= 5e-4 else
+                       f"rho {c['rho']:+.3f} -> {b['rho']:+.3f}, a tie at this rounding: "
+                       f"the shorter prompt decided")
+                print(f"   {label:<26} floor {committed:.3f} -> {bfl:.3f}: {say}, prompt "
+                      f"{c['prompt']:.1f} -> {b['prompt']:.1f}, proof "
+                      f"{c['whole']:.1%} -> {b['whole']:.1%}, `none` {c['none']:.2f} -> "
+                      f"{b['none']:.2f}")
+        gain = sorted(((best[l][1]["rho"] - all_ladder[kind][(l, committed)]["rho"], l)
+                       for l, *_ in GEOMETRIES
+                       if not (np.isnan(best[l][1]["rho"])
+                               or np.isnan(all_ladder[kind][(l, committed)]["rho"]))),
+                      reverse=True)
+        near = sum(1 for g, _l in gain if abs(g) < 1e-3)
+        print(f"\n   the committed floor is within 0.001 of what its own chunking achieves at "
+              f"{near} of {len(GEOMETRIES)} chunkings; the largest gap is "
+              f"{gain[0][0]:+.3f} of ceiling at {gain[0][1]}")
+        collapse = []
+        for label, (bfl, b) in best.items():
+            worse = [(fl, b["rho"] - all_ladder[kind][(label, fl)]["rho"])
+                     for fl in LADDER[kind] if fl > bfl]
+            hit = next(((fl, d) for fl, d in worse if d > 0.05), None)
+            collapse.append(f"{label} " + ("-" if hit is None else f"{hit[0]:.3f}"))
+        print(f"   the lowest floor above the best that loses more than 0.05 of ceiling, per "
+              f"chunking (ladder ends at {LADDER[kind][-1]:.3f}, '-' = nothing in the ladder "
+              f"costs that much): " + ", ".join(collapse))
+
+    # --- 9) the frontier at each chunking's own floor ---------------------------------------
+    print("\n9) the frontier of section 7 re-read with every chunking at its own best floor, so "
+          "a knee cannot be an artefact of a threshold tuned for a different geometry")
+    verdicts = {}
+    for kind in kinds:
+        committed = SIM_FLOOR[kind]
+        best = {label: best_floor(all_ladder[kind], label, LADDER[kind])
+                for label, *_ in GEOMETRIES}
+        print(f"\n   {kind} (shipped floor {committed:.3f}):")
+        print(HEADER)
+        for _p, label in sorted((best[label][1]["prompt"], label) for label, *_ in GEOMETRIES):
+            bfl, b = best[label]
+            print_cell(f"{label} @ {bfl:.3f}", b, n_pairs)
+        for target in (0.90, 0.95):
+            own = sorted((best[label][1]["prompt"], label, best[label][0], best[label][1])
+                         for label, *_ in GEOMETRIES
+                         if not np.isnan(best[label][1]["rho"])
+                         and best[label][1]["rho"] >= target)
+            com = sorted((all_cells[(kind, "chunk", label, committed)]["prompt"], label)
+                         for label, *_ in GEOMETRIES
+                         if not np.isnan(all_cells[(kind, "chunk", label,
+                                                    committed)]["rho"])
+                         and all_cells[(kind, "chunk", label, committed)]["rho"] >= target)
+            if not own:
+                print(f"   ceiling rho {target:.2f}: no chunking reaches it even at its own "
+                      f"best floor" + (f" ({len(com)} reach it at {committed:.3f})"
+                                       if com else ""))
+                continue
+            p, label, bfl, s = own[0]
+            ref = com[0][1] if com else None
+            use = [r for r in own if r[3]["of_doc"] < 0.95]
+            say = ("no chunking reaches it at the committed floor, so the floor is what unlocks "
+                   f"this row" if ref is None else
+                   f"the same chunking ({ref}) wins at {committed:.3f}: the knee survives"
+                   if ref == label else
+                   f"at {committed:.3f} the cheapest was {ref} at {com[0][0]:.1f} words, so "
+                   "recalibration MOVES the knee")
+            print(f"   cheapest chunking at ceiling rho >= {target:.2f} on its own floor: "
+                  f"{label} @ {bfl:.3f}, {p:.1f} prompt words, {s['of_doc']:.2f} of the CV; "
+                  f"{say}"
+                  + (" - that row is the whole document, so the ceiling is the bound, not a "
+                     "usable geometry" if s["of_doc"] >= 0.95 else ""))
+            print(f"   - among chunkings that deliver under 0.95 of the CV: "
+                  + (f"{use[0][1]} @ {use[0][2]:.3f} at {use[0][0]:.1f} prompt words"
+                     if use else f"none reaches rho {target:.2f} at any floor in the ladder"))
+            if target == 0.90:
+                verdicts[kind] = ref == label
+        sp = shipped_cells[kind]
+        own_ship = best[GEOMETRIES[0][0]]
+        print(f"   the shipped chunking {GEOMETRIES[0][0]} sits at rho {sp['rho']:+.3f} on the "
+              f"committed floor and {own_ship[1]['rho']:+.3f} on its own best "
+              f"({own_ship[0]:.3f}), i.e. recalibrating it would buy "
+              f"{own_ship[1]['rho'] - sp['rho']:+.3f} of ceiling")
+    survived = [kind for kind, ok in verdicts.items() if ok]
+    moved = [kind for kind in verdicts if kind not in survived]
+    print(f"\n   the section 7 knee at ceiling rho 0.90 survives re-fitting the floor per "
+          f"chunking for {', '.join(survived) or 'neither embedder'}"
+          + (f"; it MOVES for {', '.join(moved)}" if moved else
+             " - the geometry recommendation is not an artefact of the shipped threshold"))
+
     print("""
 What this does and does not license:
  - No model was run at any geometry here. Every rho is the ceiling the delivered evidence
    allows, which bounds a perfect reader - it is not a score the pipeline got, and none of
    these cells may be reported as a result of Q4_K_M.
- - The floors are calibrated for the shipped chunking only (`sweep_floor.py` swept 90/20), so
-   a chunk row at floor 0.024 or 0.24 is comparing a geometry against a threshold it was never
-   fitted to. That is why section 2 is repeated at floor 0 in section 6, and why a knee found
-   on a floored row is a suggestion, not a tuning.
+ - The floors were fitted at the shipped chunking only (`sweep_floor.py` swept 90/20), so the
+   other chunkings in sections 1-6 are measured against a threshold tuned for a geometry they
+   are not. Sections 8 and 9 close that loop: the floor is re-swept under every chunking, the
+   frontier is re-read there, and the verdict on the section 7 knee is printed per embedder
+   rather than assumed. What the re-fit cannot do is change a committed number: 0.024 and 0.24
+   are what the model ran with, so a floor tuned for another chunking would have to go through
+   Q4_K_M again to mean anything about this study.
  - Changing the chunking changes what the committed runs mean: SIM_FLOOR, the 172-word prompt
    (the 33-resume mean; the shipped cell measures 173.4 here, over the 30 CVs with provenance)
    and every rho in README belong to 90/20 with top_k 3 and the shipped budget function. None

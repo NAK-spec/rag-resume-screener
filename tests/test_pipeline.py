@@ -480,6 +480,37 @@ def test_the_geometry_sweep_reads_a_chunks_position_from_the_same_step_as_chunk_
                 f"{label}: {rid} has a gap"
 
 
+def test_the_floor_ladder_carries_the_committed_floor_and_the_rho_rule_is_checkable():
+    """`geometry_sweep.py` sections 8-9 re-fit SIM_FLOOR per chunking with `best_floor`, so two
+    things have to hold by construction. The ladder must contain the committed value - otherwise
+    the shipped row is not one of the candidates and the re-fit cannot be checked against it -
+    and it must stop at that embedder's own SIM_ANCHORS ceiling, the score the fallback mapping
+    calls a perfect match: a floor above it would filter away the evidence the rubric itself
+    scores 100%. Then the ranking rule: `sweep_floor.py` picked the floor by the strongest
+    evidence gap, the ladder ranks by the ceiling rubric applied to the delivered evidence - the
+    same quantity one stage earlier - and a tie has to go to the shorter prompt, never to a NaN
+    ceiling."""
+    import geometry_sweep as gs
+    from rag.llm import SIM_ANCHORS
+
+    for kind, ladder in gs.LADDER.items():
+        assert ladder[0] == 0.0, f"{kind}: no floor-0 rung, so the un-floored row is unmeasured"
+        assert SIM_FLOOR[kind] in ladder, f"{kind}: {SIM_FLOOR[kind]} is not a candidate"
+        assert ladder == sorted(set(ladder)), f"{kind}: ladder is not strictly increasing"
+        assert ladder[-1] <= SIM_ANCHORS[kind][1], (kind, ladder[-1], SIM_ANCHORS[kind])
+
+    def cell(rho, prompt):
+        return {"rho": rho, "prompt": prompt}
+
+    lad = {("g", 0.01): cell(0.5, 200.0), ("g", 0.02): cell(0.5, 180.0),
+           ("g", 0.03): cell(float("nan"), 10.0), ("g", 0.04): cell(0.7, 400.0)}
+    fl, chosen = gs.best_floor(lad, "g", [0.01, 0.02, 0.03, 0.04])
+    assert (fl, chosen["prompt"]) == (0.04, 400.0), "a NaN ceiling must never be the best"
+    lad2 = {k: v for k, v in lad.items() if k[1] != 0.04}
+    fl2, chosen2 = gs.best_floor(lad2, "g", [0.01, 0.02, 0.03])
+    assert (fl2, chosen2["prompt"]) == (0.02, 180.0), "a tie has to go to the shorter prompt"
+
+
 def main():
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]

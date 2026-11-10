@@ -229,7 +229,8 @@ fabricated a skill.
 
 ### 16. The geometry frontier, measured
 
-(`geometry_sweep.py` → `geometry_sweep.log`, 18 cells per embedder, no model anywhere in it.)
+(`geometry_sweep.py` → `geometry_sweep.log`, 66 cells and 64 distinct configurations per
+embedder - 6 chunkings x 9 floors, 7 word budgets, 5 top-k depths - no model anywhere in it.)
 
 - **Top-k is inert at this budget:** 1 → 8 moves the ceiling by **0.000** of rho and the prompt
   by 0.1 words, and the pasted text is identical (68.9 words). What limits the shipped run is the
@@ -242,6 +243,13 @@ fabricated a skill.
 - **The floor is claim discipline at every geometry:** at 90/20 it costs 0.5 points of proof and
   adds 3.43 requirements per CV marked `none`; its largest cost anywhere (10.1 points) is at one
   chunk per CV, where **5 of 30 CVs are left with no passage at all**.
+- **And the floor is no longer the untested part of that recommendation:** sections 8-9 re-sweep
+  the nine-value ladder under all six chunkings and re-read the frontier at each chunking's own
+  rho-best floor. Ceiling 0.90 still belongs to 45/10 @ **0.024** (tfidf, 196 words) and 150/30 @
+  **0.300** (dense, 209) - the same winners as at the committed floor - the shipped chunking gains
+  **+0.000** of ceiling from re-fitting on both embedders, and past the plateau the ceiling
+  collapses (0.040 tfidf / 0.450 dense already cost >0.05). What is still untested is the model
+  run, not the calibration.
 
 Then the sentence that keeps this slide honest: **no model was run at any of these cells**, so
 these are ceilings and a priced next experiment, not results.
@@ -302,8 +310,9 @@ Contributions, each backed by a committed artifact:
 Next work, in cost order:
 
 1. Re-run the study at chunk 45/10, fixed budget - **the cheap one**, since the frontier is
-   already measured: ~2 model runs, +13% prompt, ceiling +0.184. Re-calibrate `SIM_FLOOR` at the
-   new chunking first (it was swept at 90/20).
+   already measured: ~2 model runs, +13% prompt, ceiling +0.184. The floor is no longer an open
+   question at that geometry - `geometry_sweep.log` sections 8-9 re-swept it per chunking and
+   45/10's own rho-best floor is the committed 0.024 - so what remains is the model run.
 2. Widen the corpus toward n > 250 only if you need to resolve the embedder comparison - the power
    slide says exactly what 33 can and cannot support.
 3. A finer scorer scale (more output granularity, or rubric-decomposed sub-scores) before any new
@@ -333,7 +342,7 @@ pre-recorded screening. `streamlit_run.log` is app startup, not a measurement - 
 | "Isn't your rho meaningless because labels come from the rubric your pipeline encodes?" | Yes for validity-as-hiring-judgement, no for the claim being made (does the pipeline reproduce the rubric, and where does it lose information). The permutation test asks exactly that and the deck says so. | `significance.log`, slide 5 |
 | "Your full-context baseline is broken, not worse." | Correct and deliberate: 33/33 identical scores is the finding - full context does not rank. MAE 31.2 vs 23.9 still stands. | `results_v2.csv`, slide 6 |
 | "0.753 with 5 distinct scores?" | Reported as band agreement; `n_distinct_scores` and `modal_share` are printed by the tool itself, and the granularity ceiling is 0.864. | `evaluate.py`, slides 11-12 |
-| "You never tested the geometry change you recommend." | The frontier is measured with no model (18 cells/embedder) and the cheapest cell is priced; what is *not* done is scoring a model at it, and slide 16 says so. | `geometry_sweep.log` |
+| "You never tested the geometry change you recommend." | The frontier is measured with no model (66 cells and 64 distinct configurations per embedder, floor ladder included) and the cheapest cell is priced; what is *not* done is scoring a model at it, and slide 16 says so. | `geometry_sweep.log` |
 | "Did your dataset bug change your results?" | 0 of 33 tfidf scores, 0 prompt lengths, 0 passages; 1 of 33 under dense. Old and new artifacts are both committed. | `results.csv` vs `results_v2.csv` |
 | "Is it biased?" | Unknown: no effect separable from placebo, `n_effective = 1`, instrument noise 20-60 points. | `bias_q4.log` |
 
@@ -348,7 +357,7 @@ pre-recorded screening. `streamlit_run.log` is app startup, not a measurement - 
 | "The model hallucinates skills." | It over-claims matched requirements against its prompt markers; that is an unfollowed instruction, not evidence about the candidate. |
 | "The system is fair / unbiased." | The audit could not separate identity from its placebo. Unresolved. |
 | "13.3 s per candidate." | Add "on this 4-thread CPU laptop", and use `avg_latency_s`, not `avg_tok_per_s`, for comparisons. |
-| "We should switch to 45/10 chunks." | Reasonable and priced, but the floor was swept at 90/20 and no model ran at 45/10. Present as the next experiment. |
+| "We should switch to 45/10 chunks." | Reasonable, priced, and its floor is now fitted at that geometry too (45/10's rho-best floor is the committed 0.024) - but no model ran at 45/10. Present as the next experiment. |
 
 ## If you want slides, not an outline
 

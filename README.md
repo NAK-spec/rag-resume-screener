@@ -124,7 +124,7 @@ python prompt_inflation.py   # the pre-dedup prompt size, measured (no LLM)
 python significance.py       # permutation p / bootstrap CI / paired tests on the rho claims (no LLM)
 python power_analysis.py     # what this design could have detected, and its rho ceiling (no LLM)
 python retrieval_quality.py  # what the retriever actually delivers, vs the generator's record (no LLM)
-python geometry_sweep.py     # the chunk/budget/top-k frontier: cost against score ceiling (no LLM)
+python geometry_sweep.py     # the chunk/budget/top-k/floor frontier against score ceiling (no LLM)
 python bias_audit.py --limit 6 --embedder tfidf --model "Q4_K_M (4-bit)" --out bias_q4.csv
 python data/check_dataset.py   # dataset integrity + generator drift (no model needed)
 python tests/test_pipeline.py    # pytest is not installed; the file is self-running
@@ -227,7 +227,7 @@ python bias_audit.py --limit 6 --embedder tfidf --out bias_retrieval_only_contro
 python significance.py                                   # -> significance.log, no LLM, ~15 s
 python power_analysis.py                                 # -> power_analysis.log, no LLM, ~15 s
 python retrieval_quality.py                              # -> retrieval_quality.log, no LLM, ~25 s
-python geometry_sweep.py                                 # -> geometry_sweep.log, no LLM, ~1 min
+python geometry_sweep.py                                 # -> geometry_sweep.log, no LLM, ~1-2 min
 ```
 
 ### RAG vs full context, same model
@@ -638,7 +638,7 @@ fine grid around the peak; `sweep_dense_v2.log` is the same corpus at 0.050 step
 | 0.270 | 2.36 | 4.33 | 4.70 | 2.34 | 1.09 | 36.9% |
 | 0.300 | 1.91 | 3.67 | 3.90 | 1.99 | 1.06 | 47.5% |
 
-Four things these grids settle:
+Five things these grids settle:
 
 - **At floor 0.000 the tier separation is 0.00 (TF-IDF) / 0.09 (dense)** - top-k never says
   "nothing", so the signal "this candidate lacks the skill" is structurally unavailable to
@@ -657,6 +657,12 @@ Four things these grids settle:
   explanation for the eval result above: TF-IDF + floor ranks better because it is willing
   to say "no evidence" about half the requirements, dense ranks worse and scores closer
   because it keeps asserting evidence.
+- **The peak is not an artefact of the chunking it was fitted at.** These grids swept at
+  90/20, the shipped chunking; `geometry_sweep.py` sections 8-9 re-sweep nine floors under each
+  of the six chunkings. On tfidf the committed 0.024 is within 0.001 of the best floor available
+  to 2 of those geometries, on dense to 5 of 6, and the rows where a re-fit buys real ceiling
+  (+0.199 of ceiling on tfidf, for +29 prompt words) are the ones that paste the whole CV. The
+  geometry the frontier recommends needs no re-tuning: 45/10's own rho-best floor is 0.024.
 
 **Why the dense floor stays at 0.240 when 0.250 scores a wider gap.** On the corrected corpus
 the coarse grid's argmax is 0.250 (gap 2.40) rather than 0.240 (gap 2.22) - but that 0.18
@@ -802,13 +808,15 @@ this one measures that geometry as a curve, with the price of each dial on it.
 
 `retrieval_quality.log` measures two points on the evidence curve - the shipped block and the
 uncapped one - and the recommendation it supports is a change of geometry. `python
-geometry_sweep.py` (`geometry_sweep.log`, ~1 min, no GGUF) measures the curve instead: **one
+geometry_sweep.py` (`geometry_sweep.log`, ~1-2 min, no GGUF) measures the curve instead: **one
 factor at a time** across six chunkings, seven word budgets and five top-k depths - 18 cells per
 embedder, 16 of them distinct since the shipped point appears on all three axes - each scored on
 cost (pasted words, **real prompt length** from `build_prompt`), delivery (proven bullets arriving
 whole, requirements printed `none`) and the score ceiling the delivered block allows. The six
 chunkings are measured twice, at the committed floor and again at floor 0, so that a threshold
-fitted at 90/20 cannot be the hidden cause of a row at 400/0.
+fitted at 90/20 cannot be the hidden cause of a row at 400/0; sections 8-9 take that further and
+re-sweep the floor under every chunking (nine values each, 54 ladder cells, so **66 cells and 64
+distinct configurations per embedder** in the run).
 
 Its shipped cell is not a new measurement: it reproduces `retrieval_quality.log` exactly (25.3%
 whole, 43/86 requirement instances, 3.80 `none`, 2,067 pasted words for TF-IDF; 34.1%, 51/86,
@@ -833,7 +841,7 @@ CVs, so they sit 1.0 (tfidf) / 2.9 (dense) words above the 33-resume means in
 | dense budget 180 | 2.00 | 257.7 | 55.3% | **+0.980** | 4.40 |
 | one chunk per CV, floor 0 (reference) | 1.00 | 341.6 | 100.0% | +1.000 | 0.00 |
 
-Four things the curve says that the two-point version could not:
+Five things the curve says that the two-point version could not:
 
 - **Top-k is not a lever at this budget.** From 1 to 8 the block is the same block: 68.9 pasted
   words and 25.3% of the proof for tfidf, 77.0 and 34.1% for dense, with 1.03 / 1.13 passages kept
@@ -860,13 +868,30 @@ Four things the curve says that the two-point version could not:
   where a single coarse window can fail every requirement at once and leave **5 of 30 CVs with no
   passage at all**; dense shows no such cost at any chunking, because its floor never removed a
   word of text there either.
+- **Re-fitting the floor per chunking does not move the knee.** Sections 8-9 sweep the nine-value
+  ladder under all six chunkings and re-read the frontier at each chunking's own rho-best floor.
+  The committed value is the best of that ladder at only **1 of 6** chunkings on tfidf (45/10) and
+  **3 of 6** on dense, yet it is within **0.001** of the best at 2 / 5 - the ladder is flat where
+  the shipped geometry sits. The gaps that do open are in the rows that paste the CV: tfidf one
+  chunk per CV gains **+0.199** of ceiling for **+29** prompt words, while the largest gain on a
+  usable dense row is **+0.002**, at 45/10, and buying it doubles the requirements printed `none`
+  (1.90 → 4.07 per CV). Re-read at their own floors, ceiling rho 0.90 still belongs to **45/10 @
+  0.024** (196.1 words) and **150/30 @ 0.300** (209.4 words) - the same chunkings as at the
+  committed floor - and the shipped chunking gains **+0.000** of ceiling on both embedders, so
+  there is nothing to re-tune in the configuration the model actually ran. Above the plateau the
+  ceiling falls off a cliff: the first ladder value past a chunking's best that costs more than
+  0.05 of ceiling is **0.040** at tfidf 90/20 and **0.450** at dense 90/20, which is what makes
+  the shipped 0.024 / 0.24 a tuned value rather than an arbitrary one.
 
 What this does **not** license: no model was run at any of these cells, so every rho here is the
 ceiling the delivered evidence allows - it bounds a perfect reader and is not a score the
-pipeline got. The floors were swept at 90/20 only (`sweep_floor.py`), which is why each chunking
-also appears at floor 0 in the log; a knee found on a floored row is a suggestion, not a tuning.
-And the reference row reaches 1.000 by construction: pasting the whole document is the baseline
-RAG exists to beat on prompt length, not a candidate configuration.
+pipeline got. The floors were fitted at 90/20 (`sweep_floor.py`) and then re-swept under every
+chunking here, which is what makes the recommended geometry a recalibration-proof one; nothing in
+this log replaces `SIM_FLOOR`, and a floor tuned for a different chunking would have to go through
+Q4_K_M again before it could mean anything about this study. And the reference row reaches 1.000
+by construction: pasting the whole document is the baseline RAG exists to beat on prompt length,
+not a candidate configuration - which is why, on tfidf, ceiling 0.95 is reachable only by rows
+that deliver 0.97 of the CV or more, while on dense 400/0 gets there at 0.94.
 
 ### Fairness audit (6 base resumes x 19 variants = 114 screenings, 108 comparisons)
 
@@ -1003,10 +1028,12 @@ be compared against "the score moves by this much anyway".
   evidence block. The fix that points at is the chunk/budget geometry, not the quantization, and
   `retrieval_quality.log` prices one version of it: removing the word cap lifts the ceiling to
   0.975 / 1.000 at 0.81 / 0.95 of the document pasted, i.e. the compression that makes this "RAG"
-  is what removes the evidence. `geometry_sweep.log` measures the whole curve - 18 cells per
-  embedder across chunking, budget and top-k - and moves the recommendation: the knee is in the
-  chunking (45/10 reaches ceiling 0.916 at 196 prompt words, +13.1%, while 0.90 by budget alone
-  costs 247), top-k is inert at this budget (1 → 8 moves the ceiling by 0.000), and **no model was
+  is what removes the evidence. `geometry_sweep.log` measures the whole curve - 66 cells per
+  embedder across chunking, budget, top-k and a nine-value floor ladder - and moves the
+  recommendation: the knee is in the chunking (45/10 reaches ceiling 0.916 at 196 prompt words,
+  +13.1%, while 0.90 by budget alone costs 247), top-k is inert at this budget (1 → 8 moves the
+  ceiling by 0.000), and the recommendation survives the floor being re-fitted under every
+  chunking (45/10 and 150/30 still own ceiling 0.90 on their own best floors) - but **no model was
   scored at any of these cells**, so every one of those numbers is a ceiling, not a result.
 - The dataset's text defect is **fixed and re-measured, and the fix was cosmetic** - which is
   now a measurement rather than an assumption. 10 of the 30 generated resumes had experience
@@ -1060,9 +1087,10 @@ The results section above records what this design did and did not establish.
 - [PRESENTATION.md](PRESENTATION.md) is the defense outline: one slide per result section, each
   figure pointing at the artifact it was measured in, plus the list of sentences this study does
   **not** support. It cites committed numbers only - it contains no measurement of its own.
-- `tests/test_pipeline.py` holds 29 tests and covers the mechanisms the results sections
+- `tests/test_pipeline.py` holds 30 tests and covers the mechanisms the results sections
   argues from - the evidence budget, the relevance floor rejecting spurious passages, a
   rejected requirement never being reported as matched, the loud embedder fallback guard,
-  the two floors being on different scales, and the degeneracy metrics that stop a
-  near-constant scorer being quoted as a correlation. It runs offline in a couple of
-  seconds: TF-IDF only, no GGUF, no GPU, no network.
+  the two floors being on different scales, the floor ladder sections 8-9 re-fit on being
+  bounded by each embedder's own anchors with a tie going to the shorter prompt, and the
+  degeneracy metrics that stop a near-constant scorer being quoted as a correlation. It runs
+  offline in a couple of seconds: TF-IDF only, no GGUF, no GPU, no network.

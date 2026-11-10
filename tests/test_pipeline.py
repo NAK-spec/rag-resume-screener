@@ -511,6 +511,65 @@ def test_the_floor_ladder_carries_the_committed_floor_and_the_rho_rule_is_checka
     assert (fl2, chosen2["prompt"]) == (0.02, 180.0), "a tie has to go to the shorter prompt"
 
 
+def test_the_runner_gate_expectations_are_the_sweeps_own_tfidf_rows():
+    """.github/workflows/score-geometry.yml will not load a model until a retrieval-only pass at
+    its own chunking reproduces the numbers written in `geometry_sweep.log`, so the workflow
+    carries a copy of that log: mean passages, mean prompt words, chunk count per matrix row. A
+    copy is the thing that drifts. Re-run the sweep and edit one gate figure to whatever the new
+    run prints, and the gate becomes a check that the pipeline agrees with itself - it would pass
+    on a corpus that no longer has the geometry it claims. So read the log the way the workflow
+    reads its own dump and require every row to be that log's tfidf section-2 row: the chunking
+    must still produce the chunk count `chunk_text` produces on the committed resumes, and the
+    control job must still be the shipped 90/20 the rest of the study runs at. The weights pin is
+    checked against the GGUF that produced results_v2.csv when that file is on disk, because a run
+    whose model bytes differ is a different model wearing the same name."""
+    import re
+    import yaml
+
+    root = DATA.parent
+    wf = yaml.safe_load((root / ".github" / "workflows" / "score-geometry.yml")
+                        .read_text(encoding="utf-8"))
+    matrix = wf["jobs"]["score"]["strategy"]["matrix"]["include"]
+    log = (root / "geometry_sweep.log").read_text(encoding="utf-8-sig")
+    # section 2 repeats once per embedder; the gate is a tfidf run, so only the tfidf half counts
+    tfidf = log.split("embedder: dense")[0]
+    rows = {}
+    for line in tfidf.splitlines():
+        m = re.match(r"\s+chunk (\d+)/(\d+)(?: \(shipped\))?\s+(\S+)\s+(\S+)\s+(\S+)\s", line)
+        if m:
+            size, overlap, passages, _pasted, prompt = m.groups()
+            assert f"{size}/{overlap}" not in rows, f"section 2 prints {size}/{overlap} twice"
+            rows[f"{size}/{overlap}"] = (float(passages), float(prompt))
+    assert set(rows) >= {"90/20", "45/10"}, sorted(rows)
+
+    _jd, resumes, _idx = _study_index()
+    seen = []
+    for cell in matrix:
+        geo = f"{cell['chunk_words']}/{cell['chunk_overlap']}"
+        seen.append(geo)
+        assert geo in rows, f"{cell['label']}: {geo} is not a row of the sweep's section 2"
+        passages, prompt = rows[geo]
+        assert float(cell["expect_passages"]) == passages, (cell["label"], geo, passages)
+        assert float(cell["expect_prompt_words"]) == prompt, (cell["label"], geo, prompt)
+        n = sum(len(chunk_text(rid, t, cell["chunk_words"], cell["chunk_overlap"]))
+                for rid, t in resumes.items())
+        assert int(cell["expect_chunks"]) == n, (cell["label"], geo, n)
+
+    assert seen.count("45/10") == 2 and seen.count("90/20") == 1, seen
+    gguf = Path(wf["env"]["GGUF_FILE"])
+    if (root / "models" / gguf).exists():
+        import hashlib
+        h = hashlib.sha256()
+        size = 0
+        with (root / "models" / gguf).open("rb") as fh:      # streamed: 1.1 GB is not a read_bytes
+            for block in iter(lambda: fh.read(1 << 22), b""):
+                size += len(block)
+                h.update(block)
+        assert size == int(wf["env"]["GGUF_BYTES"]), gguf
+        assert h.hexdigest() == wf["env"]["GGUF_SHA256"], \
+            f"{gguf}: the workflow pins different weights than the model on disk"
+
+
 def main():
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]

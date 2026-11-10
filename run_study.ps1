@@ -113,6 +113,12 @@ Step "retrieval geometry frontier (no LLM)" {
     & $py geometry_sweep.py | Tee-Object "$OutPrefix`_geometry.log"
 } "~1-2 min, loads torch for the dense side, no GGUF"
 
+# This script stops at the frontier on purpose. The experiment it recommends - Q4_K_M scored at
+# chunk 45/10 - is `evaluate.py --chunk-words 45 --chunk-overlap 10`, and on a machine that should
+# not spend an hour frying itself it is a dispatch instead: .github/workflows/score-geometry.yml
+# runs that command, the shipped 90/20 beside it as the runner's own control, and a repeat of the
+# knee - after a retrieval-only pass proves the geometry still retrieves the cell the sweep priced.
+
 if (-not $WithModel -and ($WithDense -or $WithBias)) {
     # -WithDense / -WithBias without -WithModel would otherwise fall off the `return` below
     # and report success having measured nothing.

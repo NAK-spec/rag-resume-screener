@@ -1,0 +1,255 @@
+name: Score a chunking with Q4_K_M on a CPU runner
+
+# What this runs, and why it runs here
+#
+# geometry_sweep.log prices six chunkings with no LLM and recommends 45 words / 10 overlap as
+# the cheapest cell whose evidence ceiling reaches rho >= 0.90. That recommendation has never
+# been scored by a model: every committed Q4_K_M run is at the shipped 90/20. This workflow is
+# that missing measurement, on a machine that is not the laptop the study was made on.
+#
+# It runs three jobs:
+#   control-90-20          the shipped geometry, so the runner produces its own baseline
+#   knee-45-10             the recommended geometry
+#   knee-45-10-repeat      the same command again, the study's run-to-run variance pair
+#
+# The control is what makes a runner result usable. A 2-vCPU runner is not this laptop: llama.cpp
+# threads are not the same hardware, and at temperature 0 the reduction order of a matmul still
+# depends on thread count, so a runner's scores are a replication of the laptop's, not a replay.
+# Comparing 45/10 against the laptop's 90/20 row would mix the geometry change with the machine
+# change; comparing it against a 90/20 run on the same runner isolates the geometry. Latency and
+# tokens/sec from here are runner numbers and are never quoted against `avg_latency_s` = 13.328
+# from results_v2.csv.
+#
+# Reproduced exactly as the laptop has it: same commit, same data/, same Q4_K_M bytes (checked
+# against the sha256 of the file on disk), same llama-cpp-python and numpy/pandas/scipy versions,
+# same --embedder tfidf, same committed SIM_FLOOR and TOP_K. What is NOT reproduced: the CPU.
+#
+# Nothing on this path is free: 1.1 GB of weights per job plus 66 generations per job. If the
+# repo is private, three jobs of roughly an hour each is a visible slice of the monthly minutes.
+#
+# Before any of it, a pre-flight runs the geometry in retrieval-only mode and refuses to load a
+# model unless the retrieval side reproduces the cell in geometry_sweep.log (mean passages and
+# mean prompt words over the 30 CVs that have generator provenance). A geometry that no longer
+# retrieves what the sweep says it retrieves would score something else and prove nothing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Optional note recorded in the run summary (e.g. "thesis ch.4 geometry rerun")
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: score-geometry
+  cancel-in-progress: false
+
+env:
+  GGUF_REPO: Qwen/Qwen2.5-1.5B-Instruct-GGUF
+  GGUF_FILE: qwen2.5-1.5b-instruct-q4_k_m.gguf
+  # size and sha256 of models/qwen2.5-1.5b-instruct-q4_k_m.gguf on the laptop that produced every
+  # committed eval artifact. A run whose weights hash differently used a different model.
+  GGUF_BYTES: 1117320736
+  GGUF_SHA256: 6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # expect_* are the tfidf rows of geometry_sweep.log section 2, measured at the committed
+          # floor and budget, over the 30 CVs that have generator provenance.
+          - label: control-90-20
+            chunk_words: 90
+            chunk_overlap: 20
+            expect_passages: 1.03
+            expect_prompt_words: 173.4
+            expect_chunks: 111
+          - label: knee-45-10
+            chunk_words: 45
+            chunk_overlap: 10
+            expect_passages: 2.27
+            expect_prompt_words: 196.1
+            expect_chunks: 215
+          - label: knee-45-10-repeat
+            chunk_words: 45
+            chunk_overlap: 10
+            expect_passages: 2.27
+            expect_prompt_words: 196.1
+            expect_chunks: 215
+
+    env:
+      LABEL: ${{ matrix.label }}
+      CHUNK_WORDS: ${{ matrix.chunk_words }}
+      CHUNK_OVERLAP: ${{ matrix.chunk_overlap }}
+      EXPECT_PASSAGES: ${{ matrix.expect_passages }}
+      EXPECT_PROMPT_WORDS: ${{ matrix.expect_prompt_words }}
+      EXPECT_CHUNKS: ${{ matrix.expect_chunks }}
+      # an env var, not a substitution inside the shell string: whatever the dispatcher typed in
+      # `reason` reaches bash as data and is never parsed as a command
+      RUN_NOTE: ${{ github.event.inputs.reason }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Record the machine these numbers come from
+        run: |
+          mkdir -p ci-artifacts
+          {
+            echo "## Environment ($LABEL)"
+            echo
+            echo '```'
+            echo "label:      $LABEL"
+            echo "chunking:   $CHUNK_WORDS/$CHUNK_OVERLAP"
+            echo "note:       $RUN_NOTE"
+            echo "commit:     $(git rev-parse HEAD)"
+            uname -srvmo
+            echo "python:     $(python -V 2>&1)"
+            echo "vcpu:       $(nproc)"
+            grep -m1 -F "model name" /proc/cpuinfo
+            free -g | sed -n '1,2p'
+            echo "rag/config.py asks for N_THREADS=4 on a box with $(nproc) vCPUs: the threads"
+            echo "requested and the threads available do not match here."
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          python - <<'PY'
+          import rag.config as c
+          print(f"committed config this run must not change: CHUNK={c.CHUNK_WORDS}/"
+                f"{c.CHUNK_OVERLAP} TOP_K={c.TOP_K} SIM_FLOOR={c.SIM_FLOOR} "
+                f"N_THREADS={c.N_THREADS} N_CTX={c.N_CTX} "
+                f"MAX_NEW_TOKENS={c.MAX_NEW_TOKENS}")
+          PY
+
+      - name: Install the laptop's pinned versions
+        run: |
+          python -m pip install --upgrade pip
+          # The versions in the laptop's .venv, so the only difference left is the hardware.
+          # sentence-transformers / torch are deliberately absent: --embedder tfidf never imports
+          # them (rag.index.Embedder builds with prefer_dense=False), and embedder_for() already
+          # raises if a pinned embedder is not the one that got built.
+          pip install numpy==2.5.4 pandas==3.1.0 scipy==1.18.1 scikit-learn==1.9.1 \
+            psutil==7.2.2 pypdf==6.21.4 python-docx==1.2.0
+          # PyPI has only an sdist for this; the CPU wheel index below has the manylinux wheel,
+          # and --only-binary=:all: is what stops pip from silently starting a source build.
+          pip install --only-binary=:all: \
+            --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu \
+            llama-cpp-python==0.3.36
+          pip freeze > ci-artifacts/pip_freeze_$LABEL.txt
+          grep -iE "^(numpy|pandas|scipy|scikit-learn|psutil|pypdf|python-docx|llama)" \
+            ci-artifacts/pip_freeze_$LABEL.txt | tee ci-artifacts/versions_$LABEL.txt
+      - name: Download the weights the study used
+        run: |
+          mkdir -p models
+          curl --fail --location --silent --show-error \
+               --retry 6 --retry-all-errors --retry-delay 5 \
+               -o "models/$GGUF_FILE" \
+               "https://huggingface.co/$GGUF_REPO/resolve/main/$GGUF_FILE"
+          # a truncated download still loads and still prints numbers, so gate on the bytes
+          test "$(stat -c%s "models/$GGUF_FILE")" = "$GGUF_BYTES" || {
+            echo "size mismatch: got $(stat -c%s "models/$GGUF_FILE"), want $GGUF_BYTES"
+            exit 1
+          }
+          echo "$GGUF_SHA256  models/$GGUF_FILE" | sha256sum --check --strict \
+            | tee ci-artifacts/weights_$LABEL.txt
+
+      - name: Pre-flight, retrieval only, no model loaded
+        run: |
+          python evaluate.py --embedder tfidf --fallback \
+            --variant "Retrieval-only (no LLM)" \
+            --chunk-words "$CHUNK_WORDS" --chunk-overlap "$CHUNK_OVERLAP" \
+            --out ci-artifacts/preflight_$LABEL.csv \
+            --dump ci-artifacts/preflight_dump_$LABEL.csv \
+            > ci-artifacts/preflight_$LABEL.log
+          head -1 ci-artifacts/preflight_$LABEL.log
+          python - <<'PY'
+          import os
+          import pandas as pd
+
+          label = os.environ["LABEL"]
+          gen = tuple(f"r{i:02d}_" for i in range(1, 31))   # the CVs with generator provenance
+          first = open(f"ci-artifacts/preflight_{label}.log",
+                       encoding="utf-8-sig").read().splitlines()[0]
+          chunks = int(first.split("chunks:")[1])
+          d = pd.read_csv(f"ci-artifacts/preflight_dump_{label}.csv")
+          g = d[(d["mode"] == "rag") & d["resume_id"].str.startswith(gen)]
+          got = {"chunks": chunks,
+                 "passages": round(float(g["passages"].mean()), 2),
+                 "prompt_words": round(float(g["prompt_words"].mean()), 1)}
+          want = {"chunks": int(os.environ["EXPECT_CHUNKS"]),
+                  "passages": float(os.environ["EXPECT_PASSAGES"]),
+                  "prompt_words": float(os.environ["EXPECT_PROMPT_WORDS"])}
+          print(f"{label}: got {got} | geometry_sweep.log says {want}")
+          bad = []
+          if got["chunks"] != want["chunks"]:
+              bad.append(f"chunks {got['chunks']} vs {want['chunks']}")
+          if abs(got["passages"] - want["passages"]) > 0.01:
+              bad.append(f"passages {got['passages']} vs {want['passages']}")
+          if abs(got["prompt_words"] - want["prompt_words"]) > 0.06:
+              bad.append(f"prompt words {got['prompt_words']} vs {want['prompt_words']}")
+          if len(g) != 30:
+              bad.append(f"only {len(g)} provenance CVs in the dump")
+          if bad:
+              raise SystemExit(
+                  "this geometry no longer retrieves the cell the sweep priced, so a model run "
+                  "here would score a different experiment: " + "; ".join(bad))
+          print("preflight ok: the retrieval side of this run is the measured cell")
+          PY
+
+      - name: Score the corpus with Q4_K_M
+        run: |
+          set -o pipefail
+          python evaluate.py --embedder tfidf \
+            --variant "Q4_K_M (4-bit)" \
+            --chunk-words "$CHUNK_WORDS" --chunk-overlap "$CHUNK_OVERLAP" \
+            --out ci-artifacts/results_$LABEL.csv \
+            --dump ci-artifacts/per_resume_$LABEL.csv \
+            2>&1 | tee ci-artifacts/eval_$LABEL.log
+          python - <<'PY'
+          import os
+          import pandas as pd
+
+          label = os.environ["LABEL"]
+          d = pd.read_csv(f"ci-artifacts/results_{label}.csv")
+          row = d[d["mode"] == "rag"].iloc[0]
+          if str(row["embedder"]) != "tfidf":
+              raise SystemExit(f"expected the tfidf embedder, got {row['embedder']}")
+          if int(row["n"]) != 33:
+              raise SystemExit(f"expected 33 resumes, got {row['n']}")
+          cols = ["mode", "embedder", "n", "spearman", "kendall", "n_distinct_scores",
+                  "mae", "within_10", "avg_latency_s", "avg_prompt_words"]
+          print(d[cols].to_string(index=False))
+          print(f"\n{label}: rag rho {row['spearman']:+.3f} | MAE {row['mae']:.2f} | "
+                f"{row['avg_prompt_words']:.0f} prompt words | "
+                f"{row['avg_latency_s']:.3f} s per screen on this runner")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write(f"\n### {label}\n\n`--chunk-words {os.environ['CHUNK_WORDS']} "
+                      f"--chunk-overlap {os.environ['CHUNK_OVERLAP']}`, tfidf, "
+                      f"committed floor and top-k.\n\n```\n"
+                      f"{d[cols].to_string(index=False)}\n```\n\n")
+              f.write("Runner numbers. Read them against the control-90-20 job of this same "
+                      "run, not against results_v2.csv: same commit and weights, different "
+                      "CPU, and at temperature 0 llama.cpp output depends on the thread "
+                      "reduction order, so rho here is a replication rather than a replay. "
+                      "The latency column is a runner latency and says nothing about the "
+                      "laptop's.\n")
+          PY
+
+      - name: Upload the artifacts even when a check failed
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: q4km-${{ matrix.label }}
+          path: ci-artifacts/
+          if-no-files-found: warn
+          retention-days: 90

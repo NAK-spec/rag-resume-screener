@@ -312,7 +312,11 @@ Next work, in cost order:
 1. Re-run the study at chunk 45/10, fixed budget - **the cheap one**, since the frontier is
    already measured: ~2 model runs, +13% prompt, ceiling +0.184. The floor is no longer an open
    question at that geometry - `geometry_sweep.log` sections 8-9 re-swept it per chunking and
-   45/10's own rho-best floor is the committed 0.024 - so what remains is the model run.
+   45/10's own rho-best floor is the committed 0.024 - so what remains is the model run. That run
+   is now a command (`evaluate.py --chunk-words 45 --chunk-overlap 10`, its geometry echoed in the
+   run's own log line) and a dispatched job
+   (`.github/workflows/score-geometry.yml`: the shipped 90/20 as the runner's control, 45/10, and
+   a repeat, on the same weights and library versions as this machine). Not yet run.
 2. Widen the corpus toward n > 250 only if you need to resolve the embedder comparison - the power
    slide says exactly what 33 can and cannot support.
 3. A finer scorer scale (more output granularity, or rubric-decomposed sub-scores) before any new
@@ -357,7 +361,7 @@ pre-recorded screening. `streamlit_run.log` is app startup, not a measurement - 
 | "The model hallucinates skills." | It over-claims matched requirements against its prompt markers; that is an unfollowed instruction, not evidence about the candidate. |
 | "The system is fair / unbiased." | The audit could not separate identity from its placebo. Unresolved. |
 | "13.3 s per candidate." | Add "on this 4-thread CPU laptop", and use `avg_latency_s`, not `avg_tok_per_s`, for comparisons. |
-| "We should switch to 45/10 chunks." | Reasonable, priced, and its floor is now fitted at that geometry too (45/10's rho-best floor is the committed 0.024) - but no model ran at 45/10. Present as the next experiment. |
+| "We should switch to 45/10 chunks." | Reasonable, priced, and its floor is now fitted at that geometry too (45/10's rho-best floor is the committed 0.024) - but no model ran at 45/10. Present as the next experiment, and say where it runs: `.github/workflows/score-geometry.yml` scores it on a CPU runner next to a 90/20 control from the same dispatch, because a runner row is comparable to that control and not to this laptop's 0.753. |
 
 ## If you want slides, not an outline
 

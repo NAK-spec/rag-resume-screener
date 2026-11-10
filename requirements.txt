@@ -6,6 +6,10 @@ python-docx>=1.1
 pandas>=2.0
 scipy>=1.11
 psutil>=5.9
+# tests/test_pipeline.py reads .github/workflows/score-geometry.yml to check that the runner's
+# pre-flight gate still quotes the numbers geometry_sweep.log prints. streamlit installs PyYAML
+# today; naming it is what keeps that test from failing on a harness that never had streamlit.
+pyyaml>=6.0
 # Dense embeddings (recommended; the app falls back to TF-IDF if this is missing).
 # Pulls torch, ~127 MB on Windows. On a flaky connection PyPI's torch wheel can crawl at
 # <10 KB/s; the CPU index is measurably faster (~50-100 KB/s on the same link) and is the

@@ -14,6 +14,9 @@ missing to force them, or --fallback to benchmark the retrieval-only baseline.
 Usage:  python evaluate.py [--data data] [--out results.csv] [--top-k 3]
         python evaluate.py --include-missing     # also rows for absent GGUF files
         python evaluate.py --fallback            # add the no-LLM retrieval baseline
+        python evaluate.py --chunk-words 45 --chunk-overlap 10   # the frontier's knee,
+        # priced in geometry_sweep.log and never yet scored by a model; the chunking is
+        # echoed in the run's first line so the CSV says which geometry produced it
 """
 import argparse
 from pathlib import Path
@@ -22,7 +25,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import kendalltau, spearmanr
 
-from rag.config import MODELS, SIM_FLOOR, TOP_K
+from rag.config import CHUNK_OVERLAP, CHUNK_WORDS, MODELS, SIM_FLOOR, TOP_K
 from rag.index import ResumeIndex, embedder_for
 from rag.ingest import chunk_text, clean, extract_text
 from rag.llm import RetrievalOnlyLLM, load_llm
@@ -114,16 +117,32 @@ def main():
                     help="override SIM_FLOOR for the embedder that actually ran, for an "
                          "A/B of the relevance floor. The value is echoed in the run's "
                          "first log line; editing rag/config.py instead leaves no trace.")
+    ap.add_argument("--chunk-words", type=int, default=CHUNK_WORDS,
+                    help=f"words per chunk (committed runs: {CHUNK_WORDS}). The geometry "
+                         "frontier recommends 45, and a rerun there has to say so in its own "
+                         "log line rather than need a config edit - the same reason --floor "
+                         "exists.")
+    ap.add_argument("--chunk-overlap", type=int, default=CHUNK_OVERLAP,
+                    help=f"overlapping words between chunks (committed runs: "
+                         f"{CHUNK_OVERLAP}); must stay below --chunk-words or the windows "
+                         "stop advancing through the document")
     args = ap.parse_args()
+    if args.chunk_words < 1 or args.chunk_overlap >= args.chunk_words:
+        raise SystemExit(f"chunking {args.chunk_words}/{args.chunk_overlap} is degenerate: "
+                         f"overlap must be a non-negative whole number below the window, so "
+                         f"chunk_text can advance by {args.chunk_words}-{args.chunk_overlap} "
+                         f"words")
 
     jd, resumes, labels = load_data(Path(args.data))
-    chunks = [c for rid, t in resumes.items() for c in chunk_text(rid, t)]
+    chunks = [c for rid, t in resumes.items()
+              for c in chunk_text(rid, t, args.chunk_words, args.chunk_overlap)]
     index = ResumeIndex(embedder_for(args.embedder))
     index.build(chunks, extra_corpus=[jd])
     if args.floor is not None:
         SIM_FLOOR[index.embedder.kind] = args.floor
     words = [len(t.split()) for t in resumes.values()]
     print(f"embedder: {index.embedder.kind} | sim_floor: {SIM_FLOOR[index.embedder.kind]} "
+          f"| chunking: {args.chunk_words}/{args.chunk_overlap} "
           f"| resumes: {len(resumes)} | chunks: {len(chunks)}")
     if index.embedder.kind == "tfidf":
         floor = SIM_FLOOR["dense"]

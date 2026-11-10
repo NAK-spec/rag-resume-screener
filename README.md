@@ -125,10 +125,24 @@ python significance.py       # permutation p / bootstrap CI / paired tests on th
 python power_analysis.py     # what this design could have detected, and its rho ceiling (no LLM)
 python retrieval_quality.py  # what the retriever actually delivers, vs the generator's record (no LLM)
 python geometry_sweep.py     # the chunk/budget/top-k/floor frontier against score ceiling (no LLM)
+python evaluate.py --embedder tfidf --chunk-words 45 --chunk-overlap 10 \
+  --out results_4510.csv --dump per_resume_4510.csv   # score the geometry the frontier recommends
 python bias_audit.py --limit 6 --embedder tfidf --model "Q4_K_M (4-bit)" --out bias_q4.csv
 python data/check_dataset.py   # dataset integrity + generator drift (no model needed)
 python tests/test_pipeline.py    # pytest is not installed; the file is self-running
 ```
+
+`--chunk-words` / `--chunk-overlap` exist for the same reason `--floor` does: the geometry a run
+used has to be in that run's own first log line (`| chunking: 45/10 |`), not inferred later from
+an edited `rag/config.py`. Nothing in this repo has been scored at 45/10 yet - that is the one
+measurement the frontier asks for and the laptop has not paid for.
+[.github/workflows/score-geometry.yml](.github/workflows/score-geometry.yml) is that
+measurement, dispatched by hand onto a GitHub CPU runner as three jobs: the shipped 90/20 as the
+runner's own control, 45/10, and a repeat of 45/10. Same commit, same weights checked against the
+sha256 of the file that produced `results_v2.csv`, same library versions as this venv, same floor
+and top-k; the CPU is the only thing that differs, which is why its rho is read against the
+control job of the same run and not against `results_v2.csv`. It loads the model only after a
+retrieval-only pass reproduces the 45/10 cell of `geometry_sweep.log`.
 
 The app's sidebar has a **Retriever** control, `TF-IDF (study headline)` (default) or
 `Dense (MiniLM)`, so a demo can reproduce the configuration behind the 0.753 rather than
@@ -888,7 +902,10 @@ ceiling the delivered evidence allows - it bounds a perfect reader and is not a 
 pipeline got. The floors were fitted at 90/20 (`sweep_floor.py`) and then re-swept under every
 chunking here, which is what makes the recommended geometry a recalibration-proof one; nothing in
 this log replaces `SIM_FLOOR`, and a floor tuned for a different chunking would have to go through
-Q4_K_M again before it could mean anything about this study. And the reference row reaches 1.000
+Q4_K_M again before it could mean anything about this study - that rerun is what
+`.github/workflows/score-geometry.yml` dispatches, with the shipped geometry scored on the same
+runner so the comparison is geometry against geometry and not machine against machine. And the
+reference row reaches 1.000
 by construction: pasting the whole document is the baseline RAG exists to beat on prompt length,
 not a candidate configuration - which is why, on tfidf, ceiling 0.95 is reachable only by rows
 that deliver 0.97 of the CV or more, while on dense 400/0 gets there at 0.94.
@@ -1034,7 +1051,9 @@ be compared against "the score moves by this much anyway".
   +13.1%, while 0.90 by budget alone costs 247), top-k is inert at this budget (1 → 8 moves the
   ceiling by 0.000), and the recommendation survives the floor being re-fitted under every
   chunking (45/10 and 150/30 still own ceiling 0.90 on their own best floors) - but **no model was
-  scored at any of these cells**, so every one of those numbers is a ceiling, not a result.
+  scored at any of these cells**, so every one of those numbers is a ceiling, not a result. That
+  gap is now a dispatchable job rather than an open laptop run: see
+  `.github/workflows/score-geometry.yml`.
 - The dataset's text defect is **fixed and re-measured, and the fix was cosmetic** - which is
   now a measurement rather than an assumption. 10 of the 30 generated resumes had experience
   ranges running backwards (`Experience: BI Analyst (fintech, 2023-2022)`) because the
@@ -1087,10 +1106,13 @@ The results section above records what this design did and did not establish.
 - [PRESENTATION.md](PRESENTATION.md) is the defense outline: one slide per result section, each
   figure pointing at the artifact it was measured in, plus the list of sentences this study does
   **not** support. It cites committed numbers only - it contains no measurement of its own.
-- `tests/test_pipeline.py` holds 30 tests and covers the mechanisms the results sections
+- `tests/test_pipeline.py` holds 31 tests and covers the mechanisms the results sections
   argues from - the evidence budget, the relevance floor rejecting spurious passages, a
   rejected requirement never being reported as matched, the loud embedder fallback guard,
   the two floors being on different scales, the floor ladder sections 8-9 re-fit on being
-  bounded by each embedder's own anchors with a tie going to the shorter prompt, and the
+  bounded by each embedder's own anchors with a tie going to the shorter prompt, the chunk
+  counts and gate values `score-geometry.yml` will refuse to model-run without, and the
   degeneracy metrics that stop a near-constant scorer being quoted as a correlation. It runs
-  offline in a couple of seconds: TF-IDF only, no GGUF, no GPU, no network.
+  offline in ~45 s measured on this machine (TF-IDF only, no GGUF loaded, no GPU, no network -
+  one test does read the weights file to check the runner's sha256 pin, and skips that when the
+  file is absent).

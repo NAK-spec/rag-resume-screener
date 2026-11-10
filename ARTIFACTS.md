@@ -201,6 +201,16 @@ still fails to separate them.
 - Any rho in `geometry_sweep.log` as a model score. No model ran at any of those cells; each rho
   is the ceiling the delivered block allows, which bounds a perfect reader. "chunk 45/10 scores
   0.916" is false - it *permits* 0.916.
+- A `.github/workflows/score-geometry.yml` run as a replication of 0.753. It is a different
+  machine: same weights, same libraries, same floor, and at temperature 0 the thread reduction
+  order still moves the text, so its rag rho is quotable against the `control-90-20` job of the
+  same dispatch and against nothing else. Its latency columns are runner latencies; they neither
+  support nor challenge `avg_latency_s` 13.33 s.
+- The retrieval-only verification behind that job's gate, run on the laptop on 2026-11-10 (45/10
+  → 215 chunks, 2.27 passages, 196.1 prompt words; 90/20 → 111, 1.03, 173.4, both equal to
+  `geometry_sweep.log` section 2 over the 30 provenance CVs), as a model result. It is the
+  no-LLM path (`--variant "Retrieval-only (no LLM)"`): it proves the flag reaches the geometry the
+  sweep measured, which is why the workflow is allowed to trust it before loading 1.1 GB.
 - The 45/10 / 150/30 rows as tuned configurations or as a new default. `SIM_FLOOR` was fitted at
   90/20 only, so sections 1-7 compare the other chunkings against a threshold they were never
   tuned to; sections 8-9 close that by re-sweeping the floor under all six chunkings, and the
@@ -311,6 +321,21 @@ committed file backed it. Re-deriving it from the git-recovered code gives 1,671
 | composition vs volume | 45/10 delivers 24.0% whole against shipped 25.3%, 44 of 86 skill-instances against 43, and ranks 0.184 of rho better | recall percentage is not the delivery metric; passage spread across requirements is |
 | floor cost across the 6 chunkings | 0.5 pts of proof at shipped 90/20 (tfidf) / 0.0 (dense); worst anywhere **10.1** pts, at one chunk per CV, where `none` rises to 3.97/CV and **5 of 30 CVs get no passage at all** | the floor is claim discipline at every geometry; only the degenerate one lets it starve a CV outright |
 | floor re-fitted per chunking (sections 8-9) | the committed `SIM_FLOOR` is the rho-best at **1 of 6** chunkings on tfidf and **3 of 6** on dense, and within 0.001 of the best at 2 / 5; the largest gain a per-geometry re-fit buys is **+0.199** of ceiling (tfidf, one chunk per CV) against **+0.002** (dense, 45/10); the shipped chunking gains **+0.000** on both embedders; ceiling 0.90 still belongs to **45/10 @ 0.024** (196.1 words) and **150/30 @ 0.300** (209.4 words) | the geometry knee is not an artefact of a threshold tuned at 90/20, and nothing here replaces `SIM_FLOOR` - re-fitting it for another chunking would need a new model run to mean anything |
+
+## Scoring a geometry on a CPU runner (a job definition, not an artifact)
+
+| file | what it is |
+|---|---|
+| `.github/workflows/score-geometry.yml` | the one measurement `geometry_sweep.log` asks for and this laptop has not paid for: Q4_K_M at the recommended chunk 45/10. `workflow_dispatch` only, three jobs - `control-90-20` (the shipped geometry, scored on the runner so the runner owns its own baseline), `knee-45-10`, `knee-45-10-repeat`. Each job: pin Python 3.13 and the `.venv`'s exact library versions (`numpy 2.5.4` / `pandas 3.1.0` / `scipy 1.18.1` / `scikit-learn 1.9.1` / `llama-cpp-python 0.3.36`, from the manylinux CPU wheel index because PyPI has only an sdist); download `Qwen/Qwen2.5-1.5B-Instruct-GGUF`'s q4_k_m file and refuse to continue unless it is 1,117,320,736 bytes and hashes to `6a1a2eb6…407e`, the sha256 of the weights that produced `results_v2.csv`; run the geometry in retrieval-only mode and refuse to load a model unless it reproduces the sweep's row (90/20 → 111 chunks, 1.03 passages, 173.4 prompt words; 45/10 → 215, 2.27, 196.1 - the 30 provenance CVs, checked against the same floor and budget the sweep used); then score all 33 CVs in both modes with `--embedder tfidf` and the committed floor and top-k. Artifacts: `results_*.csv`, `per_resume_*.csv`, the run logs, `versions_*.txt`, `weights_*.txt`. Both refusals are exercised by `tests/test_pipeline.py::test_the_runner_gate_expectations_are_the_sweeps_own_tfidf_rows`, which re-reads the workflow's expected values against `geometry_sweep.log` and the GGUF on disk, and the gate itself was run against real dumps of both cells before this file was committed (all three matrix rows pass, a mismatched expectation exits 1) |
+
+**What a runner result may be used for.** `results_v2.csv`'s rho 0.753 and this job's rho are not
+the same kind of number: same commit, same bytes of weights, same library versions, different
+silicon, and at `temperature=0` llama.cpp's output still depends on the order in which a matmul is
+reduced across threads - so a runner row is a **replication** of the study, not a replay of it, and
+`N_THREADS=4` on a 2-vCPU runner is itself a difference the laptop does not have. Read 45/10
+against `control-90-20` from the same dispatch, which holds the machine constant and moves only
+the chunking. Never read its `avg_latency_s` or tokens/s against 13.33 s: those are runner
+latencies on 2 vCPUs, and the study's efficiency claims are laptop claims.
 
 ## Scratch
 

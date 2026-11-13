@@ -55,6 +55,23 @@ def chunk_text(resume_id: str, text: str,
 
 BULLET_RE = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)])\s+")
 
+# A requisition opens with metadata ("Job Title: Junior Data Scientist", "Location:
+# Remote"). Those name the slot, not a skill, so scoring one would report every candidate
+# as missing the job's own title. Only the label-then-colon form is dropped, and only for
+# these labels - "Hands-on machine learning: training, tuning..." stays a requirement.
+FIELD_LABELS = {
+    "job title", "job id", "job reference", "position", "position title", "role",
+    "title", "department", "division", "team", "reports to", "manager", "location",
+    "work location", "site", "employment type", "job type", "contract", "schedule",
+    "hours", "shift", "start date", "duration", "salary", "compensation", "benefits",
+    "company", "organisation", "organization", "industry", "client", "experience level",
+    "level", "clearance", "remote",
+}
+FIELD_LABEL_RE = re.compile(r"^\s*([^:;]{1,40}):\s*\S")
+# A one-letter abbreviation followed by a period ends no sentence: "dashboards (e.g.
+# Power BI, Tableau)" is one requirement, and splitting it made the tool list its own.
+ABBREV_TAIL_RE = re.compile(r"(?:^|[^A-Za-z0-9])[A-Za-z]\.\s*\)?\s*$")
+
 
 def split_requirements(jd: str) -> list[str]:
     """Break a job description into individual requirement lines (bullets/sentences).
@@ -73,7 +90,15 @@ def split_requirements(jd: str) -> list[str]:
     if structured:
         pieces = raw_lines
     else:
-        pieces = [p for l in raw_lines for p in re.split(r"(?<=[.!?])\s+", l)]
+        pieces = []
+        for l in raw_lines:
+            merged = [""]
+            for part in re.split(r"(?<=[.!?])\s+", l):
+                if ABBREV_TAIL_RE.search(merged[-1][-6:]):
+                    merged[-1] = (merged[-1] + " " + part).lstrip()
+                else:
+                    merged.append(part)
+            pieces.extend(p for p in merged if p)
 
     lines = []
     for raw in pieces:
@@ -83,6 +108,9 @@ def split_requirements(jd: str) -> list[str]:
         bulleted = bool(BULLET_RE.match(raw))
         terminated = s.endswith((".", "!", "?"))
         s = BULLET_RE.sub("", s).strip().rstrip(".;")
+        label = FIELD_LABEL_RE.match(s)
+        if label and label.group(1).strip().lower() in FIELD_LABELS:
+            continue
         if bulleted:
             if len(s.split()) >= 2:
                 lines.append(s)

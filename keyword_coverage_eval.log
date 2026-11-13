@@ -1,0 +1,55 @@
+corpus: 33 CVs | requirements: 6 | floor 0.024 | top_k 3 | keyword match fraction 0.6
+the keyword scorer reads the whole document, so the chunking, floor, top-k and retriever choice cannot change its output; it is run once and reported as is.
+
+1) ranking quality against the rubric labels (no model in either row)
+                           scorer  n  spearman  kendall  n_distinct_scores  modal_share   mae  within_10
+Retrieval-only (chunk similarity) 33     0.306    0.249                 12        0.303 54.48      0.061
+Keyword coverage (whole document) 33     0.787    0.635                 24        0.091 22.45      0.242
+
+   for scale, the committed Q4_K_M row (not re-measured here): spearman 0.753, mae 23.91, n_distinct_scores 5, latency 13.328 s/CV
+
+2) mean score by rubric class (does keyword coverage inflate the weak CVs?)
+   strong       n= 9  label  93.7  retrieval-only   6.4  keyword  54.0
+   medium       n=13  label  65.8  retrieval-only   4.5  keyword  43.1
+   weak         n=11  label  21.0  retrieval-only   1.5  keyword  18.6
+
+3) where the two disagree (matched-list length per CV)
+   CVs scored with 0 matched: retrieval-only 28, keyword 5
+   CVs the keyword scorer upgraded above retrieval-only: 28 of 33
+      medium_candidate.txt   0 -> 1 matched
+      r01_weak.txt           0 -> 1 matched
+      r02_strong.txt         1 -> 5 matched
+      r03_medium.txt         0 -> 3 matched
+      r05_strong.txt         0 -> 1 matched
+      r06_weak.txt           0 -> 1 matched
+      r07_medium.txt         0 -> 2 matched
+      r08_strong.txt         0 -> 4 matched
+      ... 20 more, same direction
+
+4) the same keyword rule, but reading only what RAG pasted
+   rho 0.717 when coverage is scored on the retrieved passages only (whole document: 0.787)
+   mean evidenced requirements: 1.45 of 6 (whole document 2.36)
+   the gap is what the word budget costs a term-presence scorer - and unlike the
+   model, this scorer cannot reason past a term that is not on the page.
+
+5) what keywords structurally cannot see
+   4 asks, 4 stems | Proficiency in Python and pandas for data analysis   | in no CV of the study: none
+   5 asks, 5 stems | Experience building machine learning models with sci | in no CV of the study: building
+   3 asks, 3 stems | Knowledge of SQL and relational databases            | in no CV of the study: relational
+   3 asks, 3 stems | Experience with data visualization and dashboards    | in no CV of the study: none
+   1 asks, 4 stems | Familiarity with NLP or large language models        | in no CV of the study: none
+   3 asks, 3 stems | Strong written and verbal communication skills       | in no CV of the study: verbal
+   coverage above is against the whole 33-CV corpus, so a word listed here is one no CV in the study contains - a keyword scorer can only ever call those missing, and that is the ceiling on this method, not a bug in it.
+
+6) reading: rho 0.306 (retrieval-only) -> 0.787 (keyword).
+   Three things this does NOT say:
+   - it is not a RAG result. Coverage reads the whole document, so nothing here
+     depends on retrieval; it prices the *scorer*, not the framework.
+   - the corpus is synthetic and generate_dataset.py wrote the rubric's skill
+     bullets using the requisition's own vocabulary. A keyword scorer is graded on
+     the very tokens the generator was told to place, so this rho is the most
+     generous measurement that method can ever get; on real CVs, which paraphrase,
+     it will be lower. It is also gameable by keyword stuffing, which is why the
+     study's headline stays the Q4_K_M row that reads the evidence.
+   - the scale is compressed (see section 2): ranking improved, absolute scores did
+     not track the labels, and mae is quoted next to rho for exactly that reason.

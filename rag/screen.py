@@ -167,7 +167,7 @@ def screen_resume(resume_id: str, jd: str, index: ResumeIndex, llm,
 
     g = llm.generate(SYSTEM, prompt,
                      meta={"requirements": reqs, "req_scores": req_scores,
-                           "embedder": index.embedder.kind})
+                           "embedder": index.embedder.kind, "full_text": full_text})
     d = parse_json(g.text)
     score = int(max(0, min(100, d.get("score", 0))))
     matched = normalize_requirements(d.get("matched", []), reqs)

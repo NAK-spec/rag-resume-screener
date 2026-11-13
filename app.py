@@ -23,12 +23,13 @@ from rag.config import (CHUNK_OVERLAP, CHUNK_WORDS, EMBED_MODEL, MAX_EVIDENCE_WO
                         RAG_MIN_EVIDENCE_WORDS, SIM_FLOOR, TOP_K)
 from rag.index import ResumeIndex, embedder_for
 from rag.ingest import chunk_text, clean, extract_text, split_requirements
-from rag.llm import RetrievalOnlyLLM, load_llm
+from rag.llm import KEYWORD_MATCH_FRACTION, KeywordCoverageLLM, RetrievalOnlyLLM, load_llm
 from rag.screen import screen_resume
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
-MODEL_CHOICES = list(MODELS.keys()) + ["Retrieval-only (no LLM)"]
+NO_LLM_CHOICES = ["Keyword coverage (no LLM)", "Retrieval-only (no LLM)"]
+MODEL_CHOICES = list(MODELS.keys()) + NO_LLM_CHOICES
 RESUME_TYPES = {"txt", "pdf", "docx"}
 # Retrieval-only is the default on purpose: the demo policy is to avoid loading the
 # 1.1 GB GGUF live, because thermal throttling makes the latency numbers on screen stop
@@ -206,6 +207,8 @@ if st.session_state.user is None:
 
 @st.cache_resource(show_spinner="Loading model...")
 def get_llm(variant: str):
+    if variant == "Keyword coverage (no LLM)":
+        return KeywordCoverageLLM()
     if variant == "Retrieval-only (no LLM)":
         return RetrievalOnlyLLM()
     return load_llm(MODELS[variant])
@@ -228,7 +231,7 @@ def run_screening(pairs, jd, mode, top_k, variant, kind):
     chunks = [c for rid, t in pairs for c in chunk_text(rid, t)]
     index.build(chunks, extra_corpus=[jd])
     llm = get_llm(variant)
-    if variant != "Retrieval-only (no LLM)" and isinstance(llm, RetrievalOnlyLLM):
+    if variant in MODELS and isinstance(llm, RetrievalOnlyLLM):
         st.warning(f"Model file for '{variant}' not found in ./models - using "
                    "retrieval-only scoring. See README to download it.")
     reqs = split_requirements(jd) or [jd]
@@ -274,6 +277,14 @@ def candidate_detail(result, cfg):
     m2.markdown("**Missing**")
     m2.markdown("\n".join(f"- {x}" for x in result.missing) or "- _none_")
     st.divider()
+
+    if cfg["variant"] == "Keyword coverage (no LLM)":
+        st.caption(f"This score came from whole-document keyword coverage: a requirement "
+                   f"counts as matched when at least "
+                   f"{int(KEYWORD_MATCH_FRACTION * 100)}% of its asks are words of the CV "
+                   "(one ask per content word; a list of tools or degree names counts as "
+                   "one). It does not read the passages below, and it does not change "
+                   "with the retriever choice.")
 
     if mode == "full":
         st.caption("Full-context baseline: the whole resume was pasted into the prompt, so "
@@ -334,7 +345,11 @@ def page_screen():
                                key="variant",
                                help="Only Q4_K_M is present on this machine, and only "
                                     "Q4_K_M was benchmarked - one point on the "
-                                    "quantization curve.")
+                                    "quantization curve. The two no-LLM rows are "
+                                    "different scorers, not cheaper models: chunk "
+                                    "similarity reads the retrieval score, keyword "
+                                    "coverage reads the document. Both are priced in "
+                                    "keyword_coverage_eval.log.")
         mode = c2.segmented_control("Context strategy", ["rag", "full"], default="rag",
                                     key="mode",
                                     format_func=lambda m: "RAG (retrieved evidence)"
@@ -499,6 +514,9 @@ def page_study_config():
                                       "granularity ceiling"),
             ("geometry_sweep.log", "the chunk/budget/top-k/floor frontier, measured with no "
                                    "model"),
+            ("keyword_coverage_eval.log", "the two no-LLM scorers measured against the same "
+                                          "labels: rho 0.306 chunk similarity, 0.787 keyword "
+                                          "coverage"),
             ("bias_q4.log", "identity-vs-placebo audit: no effect separable, n_effective = 1"),
             ("ARTIFACTS.md", "index of every committed measurement - read it before quoting "
                              "any results_*.csv; three configurations disagree"),

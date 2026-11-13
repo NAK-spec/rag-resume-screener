@@ -3,8 +3,9 @@
 Run with pytest (`pip install pytest`, then `pytest tests -q`) or directly with no
 extra dependency:  python tests/test_pipeline.py
 
-Every test here is TF-IDF-only and loads no GGUF, so the file runs in a couple of
-seconds on a CPU-only laptop. The dense path is covered by
+Every test here is TF-IDF-only and loads no GGUF, so the file runs in under ten seconds
+on a CPU-only laptop; the one test that re-plays a scorer over all 33 CVs accounts for
+most of it. The dense path is covered by
 test_embedder_for_refuses_a_silent_scale_swap, which forces the import to fail
 rather than downloading a model.
 """
@@ -23,7 +24,9 @@ from rag import auth
 from rag.config import SIM_FLOOR
 from rag.index import Embedder, ResumeIndex, embedder_for
 from rag.ingest import BULLET_RE, chunk_text, clean, extract_text, split_requirements
-from rag.llm import GenResult, RetrievalOnlyLLM
+from rag.llm import (GenResult, KeywordCoverageLLM, RetrievalOnlyLLM, TOKEN_RE,
+                     document_terms, keyword_coverage, keyword_terms,
+                     requirement_groups, spelling_key)
 from rag.screen import (Result, build_prompt, evidence_budget, jd_context,
                         normalize_requirements, parse_json, screen_resume,
                         select_evidence)
@@ -165,6 +168,131 @@ def test_fallback_score_is_in_range():
     for rid in ("a.txt", "b.txt"):
         r = screen_resume(rid, JD, idx, RetrievalOnlyLLM(), mode="rag", full_text=LONG)
         assert isinstance(r, Result) and 0 <= r.score <= 100
+
+
+def test_keyword_coverage_finds_what_chunk_cosine_cannot():
+    """The claim the new scorer exists for: an exact keyword must not need a similar
+    paragraph. TF-IDF cosine of one requirement against a 90-word chunk that contains
+    it verbatim lands near 0.06, under the 0.175 the retrieval-only scorer calls a
+    match - so a CV naming every tool in the requisition scores ~0."""
+    cv = ("Data Scientist. Analysis of data with Python and pandas, machine learning "
+          "models built with scikit-learn, SQL queries against relational databases, "
+          "dashboards for stakeholders. " + " ".join(f"bullet {i}" for i in range(120)))
+    idx = _index({"a.txt": cv})
+    sim = screen_resume("a.txt", JD, idx, RetrievalOnlyLLM(), mode="rag", full_text=cv)
+    key = screen_resume("a.txt", JD, idx, KeywordCoverageLLM(), mode="rag", full_text=cv)
+    assert len(sim.matched) == 0, sim.matched
+    assert {"Proficiency in Python and pandas for data analysis",
+            "Knowledge of SQL and relational databases"} <= set(key.matched), key.matched
+    assert key.score > sim.score
+
+
+def test_keyword_coverage_folds_spelling_variants():
+    """One letter apart in the corpus, the same requirement to a reader."""
+    cv = "Trained data visualisation pipelines and published dashboards for review."
+    req = "Experience with data visualization and dashboards"
+    assert spelling_key("visualisation") == "visualization"
+    assert keyword_coverage(req, {spelling_key(t) for t in TOKEN_RE.findall(cv)})[0] >= 0.6
+
+
+def test_boilerplate_alone_never_counts_as_a_requirement():
+    """A requirement with no content words has nothing to look for, and coverage of a
+    empty term list is 0 - not 1. Treating it as matched would hand every CV a free
+    point for the JD's own filler."""
+    assert keyword_terms("Strong experience and knowledge required") == []
+    assert keyword_coverage("Strong experience and knowledge required",
+                            {"python", "sql"}) == (0.0, [])
+
+
+def test_a_keyword_hit_is_a_word_not_a_substring():
+    """PostgreSQL contains SQL, but a CV that only says PostgreSQL has not said SQL,
+    and the scorer should not invent that evidence for itself."""
+    terms = {spelling_key(t) for t in TOKEN_RE.findall("queries against PostgreSQL data")}
+    assert "sql" not in terms
+    assert keyword_coverage("Knowledge of SQL databases", terms)[0] < 0.6
+
+
+def test_an_examples_list_is_one_ask_not_four():
+    """The tool list in parentheses is a gloss on the skill, not four more things the CV
+    has to repeat. Scored word by word, "(e.g. Power BI, Tableau, Plotly, Matplotlib)"
+    put four names in the denominator, and someone who built dashboards without naming a
+    tool fell under the bar for want of a brand."""
+    req = ("Data visualisation and dashboards (e.g. Power BI, Tableau, Plotly, "
+           "Matplotlib)")
+    assert len(requirement_groups(req)) == 4          # data, visualisation, dashboards, list
+    cov, absent = keyword_coverage(req, document_terms(
+        "Reporting and data visualisation for dashboards, weekly."))
+    assert cov == 0.75, (cov, absent)
+    assert absent == ["Tableau"], absent               # the closest name, not all four
+
+
+def test_a_list_of_names_is_one_ask_and_the_thing_above_it_is_still_an_ask():
+    """Six acceptable degrees are one ask. The qualification itself stays a separate
+    ask, so a CV that names a field but never says it holds the degree is not handed
+    the requirement."""
+    req = ("Bachelor's degree in Computer Science, Data Science, Statistics, "
+           "Mathematics, Information Technology or Software Engineering")
+    assert len(requirement_groups(req)) == 3           # bachelor, degree, one any-of list
+    assert keyword_coverage(req, document_terms(
+        "BSc Data Science, Makerere University."))[0] == 1 / 3
+    assert keyword_coverage(req, document_terms(
+        "Bachelor of Science in Computer Science."))[0] == 2 / 3
+
+
+def test_an_inflected_word_still_answers_the_requirement():
+    """A CV writes what it did, the requisition writes what it asks for. The same fold
+    runs on both sides, so it can merge "training" with "trained" and nothing else."""
+    for a, b in (("training", "trained"), ("querying", "queries"),
+                 ("databases", "database"), ("tuning", "tuned"),
+                 ("deploying", "deployed"), ("studies", "study"),
+                 ("analysed", "analyzed"), ("models", "model"),
+                 ("running", "run"), ("planning", "plan"), ("years", "year"),
+                 ("visualisation", "visualization")):
+        assert spelling_key(a) == spelling_key(b), (a, b)
+    assert keyword_coverage(
+        "Hands-on machine learning: training, tuning and evaluating models",
+        document_terms("Built machine learning models, trained and tuned them, "
+                       "evaluated them monthly."))[0] >= 0.6
+
+
+def test_a_hyphen_and_an_apostrophe_are_not_part_of_a_word():
+    """Two ways to write one phrase, and two ways to write one noun: both have to land
+    on the same stems, or the scorer is matching spelling instead of skill."""
+    assert document_terms("hands-on work") == document_terms("hands on work")
+    assert document_terms("the candidate's model") == document_terms("the candidates model")
+
+
+def test_a_jd_field_label_is_not_a_requirement():
+    """The requisition's own metadata - the job title it is advertising, where the seat
+    is - asks nothing of a candidate. Scoring it reported every candidate as missing the
+    job's title, the way a bare title line used to be scored as a 7th requirement."""
+    assert split_requirements(
+        "Job Title: Junior Data Scientist\nLocation: Kampala, remote\n"
+        "Hands-on machine learning: training, tuning and evaluating models") == [
+        "Hands-on machine learning: training, tuning and evaluating models"]
+
+
+def test_eg_does_not_cut_a_requirement_in_two():
+    """Sentence-splitting a JD cut "dashboards (e.g." at its abbreviation and left the
+    tool list standing as a requirement of its own, which then counted against the
+    denominator of both halves."""
+    reqs = split_requirements(
+        "Data visualisation and dashboards (e.g. Power BI, Tableau, Plotly, "
+        "Matplotlib)\nSQL for querying relational databases")
+    assert len(reqs) == 2, reqs
+    assert reqs[0].endswith("Matplotlib)"), reqs[0]
+
+
+def test_keyword_coverage_is_evidence_independent():
+    """The claim behind keyword_coverage_eval.log: this scorer reads the document, not
+    the evidence block. In full mode nothing is retrieved at all and the score is
+    unchanged - which is exactly why its rho is not a RAG result."""
+    cv = LONG
+    idx = _index({"a.txt": cv})
+    rag = screen_resume("a.txt", JD, idx, KeywordCoverageLLM(), mode="rag", full_text=cv)
+    full = screen_resume("a.txt", JD, idx, KeywordCoverageLLM(), mode="full", full_text=cv)
+    assert rag.score == full.score and rag.matched == full.matched
+    assert not any(full.evidence.values()) and any(rag.evidence.values())
 
 
 def test_text_extraction():
@@ -568,6 +696,30 @@ def test_the_runner_gate_expectations_are_the_sweeps_own_tfidf_rows():
         assert size == int(wf["env"]["GGUF_BYTES"]), gguf
         assert h.hexdigest() == wf["env"]["GGUF_SHA256"], \
             f"{gguf}: the workflow pins different weights than the model on disk"
+
+
+def test_the_keyword_coverage_log_is_what_the_scorers_still_produce():
+    """README and ARTIFACTS quote rho +0.787 for keyword coverage and +0.306 for
+    retrieval-only. Neither is a model run, so both are properties of rag/llm.py: an edit
+    to the ask rules, the filler list or the stem folds silently invalidates the quoted
+    number. Re-play both no-model scorers over the committed 33 CVs and require the log's
+    own two rows to still be what the code produces."""
+    sys.path.insert(0, str(DATA.parent))
+    import keyword_coverage_eval as kw
+
+    log = (DATA.parent / "keyword_coverage_eval.log").read_text(encoding="utf-8-sig")
+    pairs = kw.corpus()
+    index = ResumeIndex(embedder_for("tfidf"))
+    index.build([c for rid, t in pairs for c in chunk_text(rid, t)], extra_corpus=[kw.JD])
+    gold = [kw.LABELS[rid] for rid, _ in pairs]
+    for name, llm in (("Retrieval-only (chunk similarity)", RetrievalOnlyLLM()),
+                      ("Keyword coverage (whole document)", KeywordCoverageLLM())):
+        results = [screen_resume(rid, kw.JD, index, llm, mode="rag", full_text=t,
+                                 top_k=kw.TOP_K) for rid, t in pairs]
+        rho, _ = rank_metrics([r.score for r in results], gold)
+        m = re.search(re.escape(name) + r"\s+\d+\s+(-?\d\.\d{3})", log)
+        assert m, f"{name} is not a row of keyword_coverage_eval.log"
+        assert abs(rho - float(m.group(1))) < 5e-4, (name, rho, m.group(1))
 
 
 def main():

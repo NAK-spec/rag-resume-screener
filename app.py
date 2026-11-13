@@ -96,31 +96,13 @@ if "user" not in st.session_state:
     st.session_state.user = None
 
 if st.session_state.user is None:
-    st.markdown('<div class="hl-kicker">Local RAG screening - Q4_K_M - CPU</div>'
-                '<div class="hl-brand">RS</div>', unsafe_allow_html=True)
-    st.title("Resume Screener")
-    st.caption("Retrieves only the resume passages that answer each requirement, then a "
-               "locally quantized model scores and explains the match.")
-    left, right = st.columns([1.15, 1], gap="large")
-    with left:
-        st.markdown("**What happens behind the door**")
-        st.markdown(
-            "- Each requirement is retrieved against separately, and one with no "
-            "supporting passage is printed to the model as `none` rather than handed a "
-            "plausible paragraph.\n"
-            "- Scoring runs on this machine: a 4-bit Qwen2.5-1.5B under llama.cpp, four "
-            "CPU threads. No resume leaves the laptop.\n"
-            "- Accounts are local too - salted PBKDF2 hashes in `users.db` beside the app, "
-            "200,000 iterations, never a plaintext password.\n"
-            "- 33 labelled CVs ship with the repo, so the first run works before any model "
-            "download: leave *Retrieval-only (no LLM)* selected and press "
-            "*Screen candidates*.")
-        st.info("Scores support, not replace, human review. The fairness audit could not "
-                "separate identity from its placebo, so that question is unresolved - "
-                "audit before real use.")
-    with right:
+    _, mid, _ = st.columns([1, 1.15, 1])
+    with mid:
+        st.markdown('<div class="hl-kicker">Local RAG screening - Q4_K_M - CPU</div>'
+                    '<div class="hl-brand">RS</div>', unsafe_allow_html=True)
+        st.title("Resume Screener")
+        st.caption("Sign in to screen candidates.")
         with st.container(border=True):
-            st.markdown("### Sign in")
             tab_login, tab_signup = st.tabs(["Log in", "Sign up"])
             with tab_login:
                 with st.form("login_form"):

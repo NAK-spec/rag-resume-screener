@@ -376,8 +376,7 @@ def page_screen():
         if st.button("Screen candidates", type="primary",
                      disabled=not (reqs and pairs)):
             run_screening(pairs, jd.strip(), mode, top_k, variant, kind)
-            st.toast(f"Screened {len(pairs)} candidates.")
-            st.rerun()
+            st.switch_page(PAGE_CANDIDATES)
 
     with st.container(border=True):
         st.subheader("Last run")
@@ -400,15 +399,19 @@ def page_screen():
         st.caption(chips([("model", run["variant"]), ("mode", run["mode"]),
                           ("retriever", run["kind"]), ("floor", run["floor"]),
                           ("top-k", run["top_k"]), ("chunks", run["n_chunks"])]))
-        st.caption("Full ranking, per-candidate score bars and the evidence map are on the "
-                   "Candidates page.")
+        st.page_link(PAGE_CANDIDATES, label="Open the ranking",
+                     icon=":material/groups:",
+                     help="Per-candidate score bars, the rubric label and the "
+                          "requirement-to-passage evidence map.")
 
 
 def page_candidates():
     run = st.session_state.get("run")
     st.title("Candidates")
     if not run:
-        st.info("Run a screening on the Screen page first - this page shows that run.")
+        st.info("Nothing has been screened in this session yet.")
+        st.page_link(PAGE_SCREEN, label="Go to the screening form",
+                     icon=":material/search:")
         return
     res = run["results"]
     st.caption(chips([("mode", run["mode"]), ("retriever", run["kind"]),
@@ -512,9 +515,11 @@ with st.sidebar:
         st.session_state.user = None
         st.rerun()
 
-nav = st.navigation([
-    st.Page(page_screen, title="Screen", icon=":material/search:", default=True),
-    st.Page(page_candidates, title="Candidates", icon=":material/groups:"),
-    st.Page(page_study_config, title="Study config", icon=":material/settings:"),
-])
+PAGE_SCREEN = st.Page(page_screen, title="Screen", icon=":material/search:",
+                      default=True)
+PAGE_CANDIDATES = st.Page(page_candidates, title="Candidates", icon=":material/groups:")
+PAGE_STUDY_CONFIG = st.Page(page_study_config, title="Study config",
+                            icon=":material/settings:")
+
+nav = st.navigation([PAGE_SCREEN, PAGE_CANDIDATES, PAGE_STUDY_CONFIG])
 nav.run()

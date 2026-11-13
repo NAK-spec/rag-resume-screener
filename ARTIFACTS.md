@@ -322,6 +322,33 @@ committed file backed it. Re-deriving it from the git-recovered code gives 1,671
 | floor cost across the 6 chunkings | 0.5 pts of proof at shipped 90/20 (tfidf) / 0.0 (dense); worst anywhere **10.1** pts, at one chunk per CV, where `none` rises to 3.97/CV and **5 of 30 CVs get no passage at all** | the floor is claim discipline at every geometry; only the degenerate one lets it starve a CV outright |
 | floor re-fitted per chunking (sections 8-9) | the committed `SIM_FLOOR` is the rho-best at **1 of 6** chunkings on tfidf and **3 of 6** on dense, and within 0.001 of the best at 2 / 5; the largest gain a per-geometry re-fit buys is **+0.199** of ceiling (tfidf, one chunk per CV) against **+0.002** (dense, 45/10); the shipped chunking gains **+0.000** on both embedders; ceiling 0.90 still belongs to **45/10 @ 0.024** (196.1 words) and **150/30 @ 0.300** (209.4 words) | the geometry knee is not an artefact of a threshold tuned at 90/20, and nothing here replaces `SIM_FLOOR` - re-fitting it for another chunking would need a new model run to mean anything |
 
+## The two no-model scorers, measured
+
+| file | what it is |
+|---|---|
+| `keyword_coverage_eval.log` | `python keyword_coverage_eval.py > keyword_coverage_eval.log` (~10 s, no GGUF, no torch) - the app's two no-model scorers scored against the same rubric labels on the same 33 CVs: **Retrieval-only (chunk similarity) rho +0.306 / MAE 54.5 / 12 distinct scores**, **Keyword coverage (whole document) rho +0.787 / MAE 22.45 / 24 distinct scores**, against the committed Q4_K_M row (+0.753 / MAE 23.9 / 5 distinct), which is quoted from `results_v2.csv` and not re-measured. Section 2 is the class breakdown the scale question needs, section 3 the 28-of-33 CVs the keyword scorer upgrades above retrieval-only and the 5 it still cannot match at all, section 4 the same keyword rule re-scored on **only the retrieved passages** (rho 0.717, 1.45 of 6 requirements evidenced against 2.36 whole-document), section 5 the asks and stems of each requirement and the words that appear in no CV of the study at all |
+| `keyword_coverage_eval.py` | the script. It re-uses `evaluate.metric_row` and `rank_metrics` so its columns are the same definition as `results_v2.csv`'s, and it indexes each CV under its own resume id, because `ResumeIndex.search` filters by id and a shared id would let one candidate answer for another |
+
+**What those numbers may and may not be used for.** The keyword row is **not a RAG result**:
+coverage reads the whole document, so the floor, top-k, chunking and retriever choice cannot
+move it - it prices the *scorer*, not the framework. Section 4 is the honest bridge, and it is
+the interesting one: the same rule restricted to what RAG pastes keeps most of its ranking
+(rho 0.787 → **0.717**) while the number of evidenced requirements falls 2.36 → **1.45**, i.e.
+the word budget costs a presence scorer some ranking and a great deal of per-requirement
+proof.
+The corpus is synthetic and `generate_dataset.py` wrote the rubric's skill bullets using the
+requisition's own vocabulary, so +0.787 is the most generous measurement a keyword scorer can
+be handed; on real CVs, which paraphrase, it will be lower, and a keyword-only screener is
+gameable by keyword stuffing. That is why the study's headline stays the Q4_K_M row, which
+reads the evidence and can call something demonstrated without the word being present.
+
+The +0.306 for Retrieval-only is not new: it is the same quantity as
+`significance.log`'s "rag, tfidf (no LLM) score" row, which is the one claim in this study that
+is **not** significant (p=0.087, CI [−0.067, +0.644]). This log reproduces it from the pipeline
+rather than from the committed CSV, and adds the reason: a single exact keyword inside a
+90-word TF-IDF chunk scores ~0.06, under the 0.175 the similarity anchors need for a match,
+so 28 of 33 CVs come back with an empty matched list.
+
 ## Scoring a geometry on a CPU runner (a job definition, not an artifact)
 
 | file | what it is |

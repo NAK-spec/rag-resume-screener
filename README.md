@@ -125,6 +125,7 @@ python significance.py       # permutation p / bootstrap CI / paired tests on th
 python power_analysis.py     # what this design could have detected, and its rho ceiling (no LLM)
 python retrieval_quality.py  # what the retriever actually delivers, vs the generator's record (no LLM)
 python geometry_sweep.py     # the chunk/budget/top-k/floor frontier against score ceiling (no LLM)
+python keyword_coverage_eval.py  # the two no-model scorers, rho/MAE vs the rubric (no LLM)
 python evaluate.py --embedder tfidf --chunk-words 45 --chunk-overlap 10 \
   --out results_4510.csv --dump per_resume_4510.csv   # score the geometry the frontier recommends
 python bias_audit.py --limit 6 --embedder tfidf --model "Q4_K_M (4-bit)" --out bias_q4.csv
@@ -156,6 +157,32 @@ requirement matched that arrived with no passage. **Study config** is read-only:
 Pick **Retrieval-only (no LLM)** in the model select - the default - to browse the ranking and
 the per-requirement evidence without loading the 1.1 GB GGUF; the GGUF is only read when
 "Screen candidates" is pressed.
+
+There are two no-model scorers, and they are not the same claim:
+
+| select | what it scores | rho vs the rubric (n=33, tfidf) |
+| --- | --- | --- |
+| **Retrieval-only (no LLM)** | the best chunk *similarity* per requirement, rescaled on the embedder's own anchors | **+0.306** (also the row in `significance.log`, where it is the one claim in the study that is not significant, p=0.087) |
+| **Keyword coverage (no LLM)** | how many of a requirement's *asks* appear anywhere in the CV - one ask per content word, with an example list or a run of names counted as one any-of ask | **+0.787**, MAE 22.45 |
+
+Chunk cosine answers "how much do these two blobs of text overlap", and one exact keyword
+inside a 90-word chunk scores ~0.06 with TF-IDF - under the 0.175 the similarity scorer
+needs for a match. That is why a CV naming every tool in a requisition can come back
+9/100 with 0 matched: the ranking was being read off a paragraph-similarity number, not
+off whether the skill is present. Keyword coverage asks the question a no-model screener
+can actually answer, and it is retriever-independent (the floor, top-k and TF-IDF/dense
+choice cannot move it). Words are compared by stem, so "trained" answers "training" and
+"queries" answers "querying", and "(e.g. Power BI, Tableau, Plotly, Matplotlib)" is one
+tool named, not four required.
+
+`python keyword_coverage_eval.py` measures both on the committed corpus in seconds, with
+no GGUF and no torch, and it is the file that states the three limits: it is not a RAG
+result (it reads the whole document, so retrieval is not what is being priced), the corpus
+is synthetic and was written with the requisition's own vocabulary, so this is the most
+generous measurement a keyword scorer can be given on it, and its *scale* is compressed -
+strong CVs average 54.0 against a label of 93.7. The study's headline stays the Q4_K_M
+row (+0.753), which reads the retrieved evidence and can say something is demonstrated
+without naming it.
 
 **Every committed measurement file - which embedder, which floor, which of them are
 duplicates or superseded - is indexed in [ARTIFACTS.md](ARTIFACTS.md).** Read it before
@@ -249,6 +276,7 @@ python significance.py                                   # -> significance.log, 
 python power_analysis.py                                 # -> power_analysis.log, no LLM, ~15 s
 python retrieval_quality.py                              # -> retrieval_quality.log, no LLM, ~25 s
 python geometry_sweep.py                                 # -> geometry_sweep.log, no LLM, ~1-2 min
+python keyword_coverage_eval.py                          # -> keyword_coverage_eval.log, no LLM, ~10 s
 ```
 
 ### RAG vs full context, same model

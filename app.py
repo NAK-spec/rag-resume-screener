@@ -9,8 +9,10 @@ artifact named next to it. There are no mock values in this file by design - a c
 would need invented data is a card that does not get built.
 """
 import csv
+import io
 import statistics
-from pathlib import Path
+import zipfile
+from pathlib import Path, PurePosixPath
 
 import pandas as pd
 import streamlit as st
@@ -27,6 +29,7 @@ from rag.screen import screen_resume
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 MODEL_CHOICES = list(MODELS.keys()) + ["Retrieval-only (no LLM)"]
+RESUME_TYPES = {"txt", "pdf", "docx"}
 # Retrieval-only is the default on purpose: the demo policy is to avoid loading the
 # 1.1 GB GGUF live, because thermal throttling makes the latency numbers on screen stop
 # matching the ones being quoted.
@@ -85,6 +88,71 @@ def load_sample():
 def default_jd():
     p = DATA_DIR / "job_description.txt"
     return p.read_text(encoding="utf-8") if p.exists() else ""
+
+
+def unique_name(name, seen):
+    """Two CVs called CV.txt would share one resume id, and retrieval filters chunks by
+    resume id - so a collision would let one candidate answer for the other."""
+    if name not in seen:
+        seen.add(name)
+        return name
+    stem, dot, ext = name.rpartition(".")
+    i = 2
+    while f"{stem}_{i}{dot}{ext}" in seen:
+        i += 1
+    name = f"{stem}_{i}{dot}{ext}"
+    seen.add(name)
+    return name
+
+
+def expand_uploads(files):
+    """[(resume_id, text)] from the uploaded files, unpacking any ZIP.
+
+    Archive members are read out of memory and never written to disk, and only a
+    member's basename is ever used, so a '../' entry name in someone else's ZIP
+    cannot place a file anywhere.
+    """
+    out, seen, skipped, empty = [], set(), [], []
+    for f in files:
+        data = f.read()
+        members = []
+        if Path(f.name).suffix.lower() == ".zip":
+            try:
+                zf = zipfile.ZipFile(io.BytesIO(data))
+            except zipfile.BadZipFile:
+                st.error(f"`{f.name}` is not a readable ZIP archive.")
+                continue
+            with zf:
+                for m in zf.infolist():
+                    parts = PurePosixPath(m.filename).parts
+                    base = parts[-1] if parts else ""
+                    if m.filename.endswith("/") or not base or base.startswith("."):
+                        continue
+                    if base == "__MACOSX" or ".." in parts:
+                        continue
+                    if Path(base).suffix.lstrip(".").lower() not in RESUME_TYPES:
+                        skipped.append(base)
+                        continue
+                    members.append((base, zf.read(m)))
+        elif Path(f.name).suffix.lstrip(".").lower() in RESUME_TYPES:
+            members.append((f.name, data))
+        else:
+            skipped.append(f.name)
+            continue
+        for base, blob in members:
+            text = clean(extract_text(base, blob))
+            if not text.split():
+                empty.append(base)
+                continue
+            out.append((unique_name(base, seen), text))
+    if skipped:
+        st.caption(f"Ignored {len(skipped)} unsupported file(s): "
+                   + ", ".join(f"`{s}`" for s in skipped[:6])
+                   + (" ..." if len(skipped) > 6 else ""))
+    if empty:
+        st.warning(f"{len(empty)} file(s) yielded no text - a scanned PDF has no text "
+                   "layer to retrieve from: " + ", ".join(f"`{e}`" for e in empty[:6]))
+    return out
 
 
 def n_evidenced(result) -> int:
@@ -298,10 +366,12 @@ def page_screen():
             st.caption(f"{len(pairs)} resumes from `data/resumes`: 3 hand-written CVs plus "
                        "30 generated ones with rubric labels.")
         else:
-            files = st.file_uploader("Resumes (.pdf, .docx, .txt)",
-                                     type=["pdf", "docx", "txt"],
+            files = st.file_uploader("Resumes (.pdf, .docx, .txt - or a .zip of them)",
+                                     type=["pdf", "docx", "txt", "zip"],
                                      accept_multiple_files=True, key="uploads")
-            pairs = [(f.name, clean(extract_text(f.name, f.read()))) for f in files or []]
+            pairs = expand_uploads(files)
+            if pairs:
+                st.caption(f"{len(pairs)} candidate file(s) read.")
 
         if st.button("Screen candidates", type="primary",
                      disabled=not (reqs and pairs)):

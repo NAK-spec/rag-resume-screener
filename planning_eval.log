@@ -1,0 +1,90 @@
+corpus: 33 CVs | requirements: 6 | chunks: 111 (3.4 per CV) | floor 0.024 | top_k 3 | match fraction 0.6
+budget: the shipped evidence_budget(resume words), mean 117 of a mean 222-word CV, range 39-192
+
+1) the three policies that already exist, before any planning
+                                policy  n  spearman  kendall  n_distinct_scores  modal_share   mae  within_10
+     Retrieval-only (chunk similarity) 33     0.306    0.249                 12        0.303 54.48      0.061
+     Keyword coverage (whole document) 33     0.787    0.635                 24        0.091 22.45      0.242
+Fixed top-k passages (select_evidence) 33     0.717    0.545                 25        0.091 31.42      0.152
+   no timing column here by design: no model ran, so it would measure Python rather than a method (the same rule keyword_coverage_eval.log follows).
+   satisfied requirements: fixed top-k 1.45 of 6, whole document 2.36
+
+2) the planner: budget x beam width, same coverage rule, same 33 CVs
+ beam  budget x  spearman  kendall   mae  within_10  distinct  mean score  passages  words spent  budget  satisfied  nodes  re-asks
+    1       0.5     0.724    0.558 32.42      0.091        23        26.9      1.00         59.0    59.0       1.27    3.0     0.39
+    1       1.0     0.763    0.573 28.82      0.242        22        30.5      1.09         78.0   117.0       1.67    3.0     0.36
+    1       2.0     0.780    0.614 23.45      0.242        23        36.9      1.79        136.0   234.0       2.27    4.0     0.30
+    1       4.0     0.787    0.635 22.45      0.242        24        37.9      1.91        146.0   469.0       2.36    4.0     0.30
+    8       0.5     0.724    0.558 32.42      0.091        23        26.9      1.00         59.0    59.0       1.27    3.0     0.39
+    8       1.0     0.752    0.565 28.67      0.242        22        30.7      1.12         79.0   117.0       1.70    6.0     0.36
+    8       2.0     0.789    0.625 23.30      0.242        24        37.1      1.82        136.0   234.0       2.33   10.0     0.30
+    8       4.0     0.787    0.635 22.45      0.242        24        37.9      1.91        146.0   469.0       2.36   11.0     0.30
+   24       0.5     0.724    0.558 32.42      0.091        23        26.9      1.00         59.0    59.0       1.27    3.0     0.39
+   24       1.0     0.752    0.565 28.67      0.242        22        30.7      1.12         79.0   117.0       1.70    6.0     0.36
+   24       2.0     0.789    0.625 23.30      0.242        24        37.1      1.82        136.0   234.0       2.33   11.0     0.30
+   24       4.0     0.787    0.635 22.45      0.242        24        37.9      1.91        146.0   469.0       2.36   13.0     0.30
+   satisfied = mean requirements at or above the match fraction; nodes = search states expanded per CV, the only cost the search itself incurs.
+
+3) what search buys over greedy at the same budget
+   budget x0.5: greedy rho 0.724 | beam 8 0.724 (0/33 different read sets) | beam 24 0.724 (0/33 different from beam 8)
+   budget x1.0: greedy rho 0.763 | beam 8 0.752 (1/33 different read sets) | beam 24 0.752 (0/33 different from beam 8)
+   budget x2.0: greedy rho 0.780 | beam 8 0.789 (3/33 different read sets) | beam 24 0.789 (0/33 different from beam 8)
+   budget x4.0: greedy rho 0.787 | beam 8 0.787 (0/33 different read sets) | beam 24 0.787 (0/33 different from beam 8)
+
+3b) the choice that actually moves the numbers: rank states by the goal count or by the score
+ budget x state ranking  spearman   mae  satisfied  mean score  passages  CVs scored below the ranking
+      0.5          goal     0.724 32.42       1.27        26.9      1.00                             7
+      0.5      coverage     0.724 32.42       1.27        26.9      1.00                             7
+      1.0          goal     0.752 28.67       1.70        30.7      1.12                             2
+      1.0      coverage     0.777 28.39       1.61        30.9      1.12                             0
+      2.0          goal     0.789 23.30       2.33        37.1      1.82                             0
+      2.0      coverage     0.786 23.06       2.27        37.3      1.79                             0
+      4.0          goal     0.787 22.45       2.36        37.9      1.91                             0
+      4.0      coverage     0.787 22.45       2.36        37.9      1.91                             0
+   more words can mean a lower score: across the 99 budget steps of this grid, the `goal` ranking leaves a CV below the score it earned one step earlier 3 times and `coverage` 0 times. A bigger budget is supposed to be a floor under the score, so the goal predicate costs something a person would notice - and it is a search artefact, not a law of the problem: the search keeps the best node it saw at any depth, so the only way a wider budget can lose is by changing which nodes the beam keeps.
+   `goal` is the classical one - a requirement is a predicate, either satisfied or not - and it can prefer one clean hit over more spread-out partial credit. `coverage` ranks on the graded mean, which is what the score column is made from, and the last column counts where that difference shows up.
+
+4) against the two policies a planner has to beat
+   fixed top-k passages (what select_evidence does)   rho 0.717  at 1.45 of 6 satisfied
+   best planner arm (beam 8, budget x2.0)      rho 0.789  at 2.33 of 6 satisfied
+   whole document, no retrieval at all                rho 0.787  at 2.36
+   the last row is the ceiling any budget-limited policy is measured against, and it is not a prompt: it reads every word of the CV.
+
+5) the sensing step on its own (beam 8, shipped budget)
+                                            sensing policy   rho   mae  passages  satisfied  CVs with no evidence  CVs with a requirement no passage answers
+           explore once at the shipped floor, never re-ask 0.770 29.39      1.00       1.61                     2                                         32
+shipped arm: re-ask unsatisfied requirements, floor halved 0.752 28.67      1.12       1.70                     0                                         32
+                   no floor: every top-k chunk is readable 0.752 28.67      1.12       1.70                     0                                         32
+   the floor is the reason a CV can be scored 9/100 with every tool named (keyword_coverage_eval.log section 1); this is what the planner does about it.
+
+6) mean score by rubric class (planner at beam 8, shipped budget)
+   strong       n= 9  label  93.7  planner  47.7  whole-doc  54.0
+   medium       n=13  label  65.8  planner  31.9  whole-doc  43.1
+   weak         n=11  label  21.0  planner  15.3  whole-doc  18.6
+
+   for scale, the committed Q4_K_M row (quoted, not re-measured here): spearman 0.753, mae 23.91, n_distinct_scores 5, latency 13.328 s/CV
+
+7) reading, and what this does NOT say
+   - The planner optimises the same coverage function it is graded on, and rag/index.py
+     holds every chunk's text, so a read action's effect is known before the action runs.
+     This is therefore a budgeted maximum-coverage problem solved by forward search, and
+     these rows are an upper bound on what evidence *selection* can do - not an unbiased
+     estimate of a screener that had to learn what good evidence looks like, and not
+     comprehension: no term rule here tells "built a churn model" from "trained on churn
+     models", which is the thing the Q4_K_M row is in the loop for.
+   - The budget, not the search, is what binds: at the shipped budget a plan reads
+     1.1 passages, so most CVs are decided by one read
+     and a wider beam has almost nothing to look ahead at. That is why the planner's gain
+     here is a *selection* gain, not a sequencing gain: section 3 shows a wider beam
+     changing the read set on a handful of CVs, and section 3b shows the objective the
+     states are ranked by moving rho far more than the search ever does - including the
+     one place where the classical goal ordering is actively worse, a bigger budget that
+     returns a lower score. A planner that cannot be wrong about which words a passage
+     holds has little to plan.
+   - Which passages are even readable depends on the TF-IDF geometry (chunking 90/20,
+     top_k 3, floor 0.024). The whole-document keyword arm is
+     retriever-independent; a planner that must retrieve is not, so it inherits every
+     finding in retrieval_quality.log.
+   - The corpus is synthetic and generate_dataset.py wrote its skill bullets from the
+     requisition's own vocabulary, which flatters any term-presence scorer - here and in
+     keyword_coverage_eval.log.

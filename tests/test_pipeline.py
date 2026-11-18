@@ -3,11 +3,13 @@
 Run with pytest (`pip install pytest`, then `pytest tests -q`) or directly with no
 extra dependency:  python tests/test_pipeline.py
 
-Every test here is TF-IDF-only and loads no GGUF, so the file runs in under ten seconds
-on a CPU-only laptop; the one test that re-plays a scorer over all 33 CVs accounts for
-most of it. The dense path is covered by
-test_embedder_for_refuses_a_silent_scale_swap, which forces the import to fail
-rather than downloading a model.
+Every test here is TF-IDF-only and loads no GGUF. 57 tests take about 27 s on the
+CPU-only laptop the study ran on, and the planning arm accounts for most of it: re-playing
+planning_eval.log means 17 forward-search passes over the 33 committed CVs, cached in one
+process because eight tests read the same arms. The trained arms add a leave-one-out ridge
+fit, a distillation fit and three learned-value planner passes. The dense path is covered by
+test_embedder_for_refuses_a_silent_scale_swap, which forces the import to fail rather than
+downloading a model.
 """
 import math
 import re
@@ -21,12 +23,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from evaluate import metric_row, rank_metrics
 from rag import auth
+from rag import planner as P
 from rag.config import SIM_FLOOR
 from rag.index import Embedder, ResumeIndex, embedder_for
 from rag.ingest import BULLET_RE, chunk_text, clean, extract_text, split_requirements
-from rag.llm import (GenResult, KeywordCoverageLLM, RetrievalOnlyLLM, TOKEN_RE,
-                     document_terms, keyword_coverage, keyword_terms,
-                     requirement_groups, spelling_key)
+from rag.llm import (KEYWORD_MATCH_FRACTION, GenResult, KeywordCoverageLLM,
+                     RetrievalOnlyLLM, TOKEN_RE, document_terms, keyword_coverage,
+                     keyword_terms, requirement_groups, spelling_key)
 from rag.screen import (Result, build_prompt, evidence_budget, jd_context,
                         normalize_requirements, parse_json, screen_resume,
                         select_evidence)
@@ -720,6 +723,492 @@ def test_the_keyword_coverage_log_is_what_the_scorers_still_produce():
         m = re.search(re.escape(name) + r"\s+\d+\s+(-?\d\.\d{3})", log)
         assert m, f"{name} is not a row of keyword_coverage_eval.log"
         assert abs(rho - float(m.group(1))) < 5e-4, (name, rho, m.group(1))
+
+
+# ---------------------------------------------------------------------------
+# the planning arm (rag/planner.py) and the trained arms (rag/learn.py)
+# ---------------------------------------------------------------------------
+
+def _log_table(log, after, before):
+    """The rows of the whitespace-aligned table printed between two markers, header
+    dropped, each row split into tokens.
+
+    Column names are not recovered, because pandas pads a multi-word header into more
+    tokens than it has columns. Every caller below counts its own columns from the right
+    and asserts the row count, so a reordered or added column shows up as a wrong number
+    rather than a silently skipped row.
+    """
+    body = log.split(after, 1)[1].split("\n", 1)[1].split(before)[0]
+    lines = [l for l in body.splitlines() if l.strip()]
+    rows = [l.split() for l in lines[1:]]
+    assert rows, f"no table printed between {after!r} and {before!r}"
+    return rows
+
+
+def _matches(token, value):
+    """Does a freshly measured number equal the log's cell at the precision the log prints?
+
+    Reading the decimals from the token means the test follows the log's own rounding
+    instead of inventing a tolerance of its own.
+    """
+    dp = len(token.split(".")[1]) if "." in token else 0
+    return round(float(value), dp) == float(token)
+
+
+@lru_cache(maxsize=1)
+def _planning_study():
+    """The planner exactly as planning_eval.py runs it: same corpus order, same budgets,
+    same beams, same scoring rule. Cached, because eight tests want these arms and one
+    pass over the 33 CVs costs about half a second."""
+    sys.path.insert(0, str(DATA.parent))
+    import planning_eval as PE
+    from rag.config import TOP_K
+
+    jd = (DATA / "job_description.txt").read_text(encoding="utf-8")
+    pairs = tuple(PE.corpus())
+    reqs = split_requirements(jd)
+    index = ResumeIndex(embedder_for("tfidf"))
+    index.build([c for rid, t in pairs for c in chunk_text(rid, t)], extra_corpus=[jd])
+    labels = PE.LABELS
+
+    def planned(beam, mult, order="goal", **kw):
+        return tuple(P.plan_evidence(rid, jd, index, t, beam=beam, order=order,
+                                     budget=int(round(evidence_budget(len(t.split()))
+                                                      * mult)), **kw)
+                     for rid, t in pairs)
+
+    arms = {f"beam{beam}x{mult}": planned(beam, mult)
+            for beam in PE.BEAMS for mult in PE.BUDGET_MULT}
+    for mult in PE.BUDGET_MULT:
+        arms[f"coverage_x{mult}"] = planned(8, mult, order="coverage")
+    arms["never_reask"] = planned(8, 1.0, relax_rounds=0)
+
+    fixed = []
+    for rid, t in pairs:
+        hits = [index.search(r, rid, k=TOP_K, min_score=SIM_FLOOR["tfidf"]) for r in reqs]
+        kept = select_evidence(hits, evidence_budget(len(t.split())))
+        fixed.append(PE.coverage_result(rid, document_terms(
+            " ".join(c.text for _, c in kept)), reqs))
+    return SimpleNamespace(PE=PE, jd=jd, pairs=pairs, reqs=reqs, index=index,
+                           labels=labels, gold=[labels[rid] for rid, _ in pairs],
+                           arms=arms, fixed=fixed,
+                           whole=[PE.coverage_result(rid, document_terms(t), reqs)
+                                  for rid, t in pairs])
+
+
+@lru_cache(maxsize=1)
+def _trained_study():
+    """Both trained arms as trained_eval.py runs them, built once: the feature matrices,
+    the leave-one-out screener, the value model's held-out quality and the planner driven
+    by learned values. Cached because the poison tests need several fits from one feature
+    build and the log-agreement test needs the same numbers again."""
+    import numpy as np
+
+    sys.path.insert(0, str(DATA.parent))
+    import trained_eval as TE
+    from rag import learn as L
+
+    st = _planning_study()
+    labels = st.labels
+    y = np.array([labels[rid] for rid, _ in st.pairs], float)
+    rows = tuple(L.screener_features(st.index, rid, st.reqs, t) for rid, t in st.pairs)
+    X, names = L._vectorise(rows, None)
+    Xr, names_r = L._vectorise(rows, L.RETRIEVAL_ONLY)
+    pred, insample, _models, _full = L.loo_predict(X, y)
+    Xv, yv, owner = L.value_rows(st.index, st.reqs, st.pairs)
+    learned = {}
+    for mult in TE.BUDGET_MULT:
+        store = []
+        for pos, (rid, t) in enumerate(st.pairs):
+            vals = L.value_of_chunk(L.fit_value_model(Xv, yv, owner, pos),
+                                    st.index, st.reqs, rid, t)
+            store.append(P.plan_evidence(rid, st.jd, st.index, t, beam=TE.BEAM,
+                                         budget=int(round(evidence_budget(len(t.split()))
+                                                          * mult)), values=vals))
+        learned[mult] = tuple(store)
+    return SimpleNamespace(TE=TE, L=L, st=st, pairs=st.pairs, y=y, rows=rows,
+                           X=X, names=names, Xr=Xr, names_r=names_r, pred=pred,
+                           insample=insample, Xv=Xv, yv=yv, owner=owner,
+                           learned=learned)
+
+
+def test_a_planned_prompt_spends_only_the_budget_it_was_given():
+    """The `read` action's precondition is the same word budget select_evidence gets, so
+    the planner and the shipped policy are handed identical resources. The one documented
+    exception is the first read, exempt so a plan is never empty - and when it triggers,
+    the passage that got in has to be the cheapest readable one, which is what planner.py's
+    exemption condition actually guarantees. Readable means `plan.pool`, the set the
+    winning plan searched: a later `relax` round can widen the asking without changing the
+    plan. The second half checks the budget binds at all:
+    too small to fit any passage, the plan is still exactly one passage long."""
+    st = _planning_study()
+    for key, store in st.arms.items():
+        for p in store:
+            if p.words_spent <= p.budget:
+                continue
+            assert p.reads == 1, (key, p.resume_id, p.words_spent, p.budget, p.reads)
+            assert p.words_spent == min(len(c.text.split()) for c in p.pool), \
+                (key, p.resume_id, "an exempted first read must be the cheapest passage")
+    for p in st.arms["beam8x1.0"]:
+        text = dict(st.pairs)[p.resume_id]
+        assert p.budget == evidence_budget(len(text.split())), p.resume_id
+
+    idx = _index({"tiny": LONG})
+    tight = P.plan_evidence("tiny", JD, idx, LONG, beam=8, budget=10)
+    assert tight.reads == 1 and tight.words_spent > tight.budget, \
+        (tight.reads, tight.words_spent, tight.budget)
+    assert tight.stop_reason.startswith("budget spent"), tight.stop_reason
+
+
+def test_a_plan_can_be_replayed_action_by_action():
+    """Plan.steps is advertised as replayable from the empty state, and the log's per-step
+    numbers come from that replay. Re-run the transitions here, without the search, and
+    require every recorded word count, score and unsatisfied count to be what the same
+    actions produce again - and the replayed term set to be the plan's own."""
+    st = _planning_study()
+    for p in st.arms["beam8x1.0"]:
+        kinds = [s.kind for s in p.steps]
+        assert kinds[:len(st.reqs)] == ["explore"] * len(st.reqs), kinds
+        assert kinds[len(kinds) - p.reads:] == ["read"] * p.reads, kinds
+        assert kinds.count("relax") == p.relax_rounds, (p.resume_id, kinds)
+        assert sum(1 for s in p.steps if s.kind == "read") == p.reads == len(p.path)
+        label_of = {c.idx: lab for lab, c in p.passages}
+        terms, words = set(), 0
+        for s in [x for x in p.steps if x.kind == "read"]:
+            cid = [i for i, lab in label_of.items() if lab == s.target]
+            assert len(cid) == 1, (p.resume_id, s.target, label_of)
+            chunk = [c for _, c in p.passages if c.idx == cid[0]][0]
+            terms |= document_terms(chunk.text)
+            words += len(chunk.text.split())
+            covs = [keyword_coverage(r, terms)[0] for r in st.reqs]
+            assert s.words_spent == words, (p.resume_id, s.target, words)
+            assert s.score_after == round(100 * sum(covs) / len(covs)), \
+                (p.resume_id, s.target, covs)
+            assert s.unsatisfied_after == sum(1 for c in covs
+                                              if c < KEYWORD_MATCH_FRACTION)
+        assert frozenset(terms) == p.terms, p.resume_id
+        if p.reads:
+            assert p.steps[-1].score_after == p.score, (p.resume_id, p.steps[-1].score_after,
+                                                        p.score)
+
+
+def test_the_same_cv_gets_the_same_plan_twice():
+    """A plan is quoted in a log and defended in a viva, so it has to be the plan the same
+    code returns on a machine that has never seen this one. Nothing in the search is timed,
+    seeded or hashed-order dependent: the ranking key ends in the sorted passage ids for
+    exactly this reason."""
+    st = _planning_study()
+    for (rid, t), p in zip(st.pairs, st.arms["beam8x1.0"]):
+        q = P.plan_evidence(rid, st.jd, st.index, t, beam=8, budget=p.budget)
+        assert (q.path, q.score, q.words_spent, q.stop_reason) == \
+            (p.path, p.score, p.words_spent, p.stop_reason), rid
+        assert [s.detail for s in q.steps] == [s.detail for s in p.steps], rid
+
+
+def test_only_the_goal_ranking_can_make_more_words_mean_a_lower_score():
+    """A bigger budget widens the set of feasible plans, so no plan should score below what
+    the same CV scored with fewer words. The `coverage` ordering never does; the shipped
+    `goal` ordering does, three times in this grid, because ranking states by the
+    satisfied-predicate count first lets a wider beam keep a passage that satisfies one
+    requirement outright over one that spreads more partial credit. That number is the
+    sharpest single cost of the classical choice in planning_eval.log section 3b, so it is
+    pinned to the footnote that prints it - flip the default ordering and this test, and
+    the log, both have to be re-read."""
+    st = _planning_study()
+    mults = (0.5, 1.0, 2.0, 4.0)
+
+    def drops(arms):
+        seq = [arms[m] for m in mults]
+        return sum(1 for i in range(len(st.pairs))
+                   for prev, nxt in zip(seq[:-1], seq[1:])
+                   if nxt[i].score < prev[i].score)
+
+    goal = drops({m: st.arms[f"beam8x{m}"] for m in mults})
+    cover = drops({m: st.arms[f"coverage_x{m}"] for m in mults})
+    assert cover == 0, "a budget is a floor under the score; the coverage ranking broke it"
+    log = (DATA.parent / "planning_eval.log").read_text(encoding="utf-8-sig")
+    m = re.search(r"earlier (\d+) times and `coverage` (\d+) times", log)
+    assert m, "planning_eval.log no longer prints its budget-monotonicity footnote"
+    assert (goal, cover) == (int(m.group(1)), int(m.group(2))), (goal, cover, m.groups())
+    assert goal > 0, ("the goal ordering is no longer non-monotone anywhere: section 3b of "
+                      "the log has lost its point, re-run it")
+
+
+def test_re_asking_a_blind_floor_is_what_leaves_those_cvs_with_evidence():
+    """The similarity floor is why a CV can be scored 9/100 with every tool named: top-k
+    returns nothing at all for a requirement whose passages all sit under it, and a policy
+    that cannot re-ask then plans over an empty pool. planner.py's `relax` action is the
+    answer, and the two CVs it saves are named here, because the fix costs ranking
+    (0.770 -> 0.752 in the log's section 5) and a future edit that drops it to pay that
+    price back has to notice the two CVs coming back."""
+    st = _planning_study()
+    blind = [p.resume_id for p in st.arms["never_reask"] if not p.reads]
+    assert blind == ["r04_weak.txt", "r06_weak.txt"], blind
+    for p in st.arms["never_reask"]:
+        if not p.reads:
+            assert "similarity floor" in p.stop_reason, (p.resume_id, p.stop_reason)
+    shipped = {p.resume_id: p for p in st.arms["beam8x1.0"]}
+    for rid in blind:
+        p = shipped[rid]
+        assert p.relax_rounds >= 1 and p.reads == 1, \
+            (rid, p.relax_rounds, p.reads, p.stop_reason)
+        assert p.words_spent <= p.budget or p.reads == 1, (rid, p.words_spent, p.budget)
+
+
+def test_noisy_or_never_undoes_evidence_already_gathered():
+    """The learned-value search combines a passage's predicted per-requirement coverage
+    with what it already believes using noisy-OR, because a second passage can only add
+    evidence for an ask. If it could subtract, the planner's belief would be able to go
+    backwards and the estimates would stop meaning anything."""
+    cases = [((0.0, 0.5, 1.0, 0.25), (0.3, 0.0, 0.2, 0.9)),
+             ((0.0, 0.0, 0.0, 0.0), (0.7, 0.7, 0.7, 0.7)),
+             ((0.9, 0.9, 0.1, 0.7), (0.0, 0.0, 0.0, 0.0)),
+             ((0.4, 0.6, 0.8, 0.0), (1.0, 1.0, 1.0, 1.0))]
+    for a, b in cases:
+        got = P._noisy_or(a, b)
+        # + 1e-12 because the combine is float arithmetic: 1 - 0.9*1.0 is 0.09999999999999998
+        assert all(x <= y + 1e-12 and y <= 1.0 for x, y in zip(a, got)), (a, b, got)
+    assert all(math.isclose(x, y) for x, y in
+               zip(P._noisy_or((0.4, 0.6), (0.0, 0.0)), (0.4, 0.6)))
+    assert all(math.isclose(v, 1.0) for v in P._noisy_or((0.5, 0.5), (1.0, 1.0)))
+
+
+def test_a_planned_result_is_the_record_the_app_and_the_metrics_already_read():
+    """screen_resume_planned has to hand back the same Result the LLM run hands back, or
+    the app and metric_row read a plan as a different kind of measurement. The score is the
+    plan's, score_coverage is the matched count, matched and missing partition the
+    requirements, and every prompt actually carries words."""
+    st = _planning_study()
+    res = [P.screen_resume_planned(rid, st.jd, st.index, t) for rid, t in st.pairs]
+    for r, p in zip(res, st.arms["beam8x1.0"]):
+        assert r.score == p.score, r.resume_id
+        assert r.score_coverage == round(100 * len(p.matched) / len(st.reqs)), r.resume_id
+        assert sorted(r.matched + r.missing) == sorted(st.reqs), r.resume_id
+        assert not (set(r.matched) & set(r.missing)), r.resume_id
+        assert r.prompt_words > 0 and r.raw.startswith("{"), r.resume_id
+    rho = rank_metrics([r.score for r in res], st.gold)[0]
+    row = metric_row(KeywordCoverageLLM(), "planned", "rag", res, st.labels, "tfidf")
+    assert abs(row["spearman"] - rho) < 5e-4, (row["spearman"], rho)
+    assert row["n"] == len(st.pairs) and row["avg_latency_s"] == 0.0, row
+
+
+def test_a_plan_built_on_estimates_is_still_graded_by_the_term_rule():
+    """The unbiased arm of the planner searches on a model's estimate of what a passage is
+    worth and never consults the rule while choosing. That only measures anything if the
+    passages it chose are then scored the same way every other arm is: plan.coverages is the
+    rule over the terms actually read, plan.search_covs is what the model believed, and the
+    two must differ somewhere or the arm quietly became the trained rule."""
+    st = _trained_study()
+    base, learned = st.st.arms["beam8x1.0"], st.learned[1.0]
+    belief_changed, belief_differs = 0, 0
+    for p, q in zip(base, learned):
+        covs = [keyword_coverage(r, q.terms)[0] for r in st.st.reqs]
+        assert q.coverages == covs, (q.resume_id, q.coverages, covs)
+        if q.search_covs != q.coverages:
+            belief_differs += 1
+        if {c.idx for _, c in p.passages} != {c.idx for _, c in q.passages}:
+            belief_changed += 1
+    assert belief_differs, "the model's belief equals the rule everywhere: not a model run"
+    assert belief_changed, "the learned value changed no passage choice: the arm is a no-op"
+
+
+def test_the_ridge_screener_cannot_see_the_label_of_the_cv_it_scores():
+    """Every rho in trained_eval.log is out-of-fold, which is the study's only defence
+    against a scorer that memorised its 33 rows. Prove it the way a reviewer would ask:
+    replace one CV's human label with its opposite and require that CV's prediction not to
+    move by a bit, while the other 32 do move - so the poison really landed and really
+    stayed outside the fold that scored its own row."""
+    import numpy as np
+
+    st = _trained_study()
+    L = st.L
+    pred, _ins, _m, _f = L.loo_predict(st.X, st.y)
+    assert np.array_equal(pred, st.pred)
+    for i in (0, len(st.pairs) // 2, len(st.pairs) - 1):
+        poisoned = st.y.copy()
+        poisoned[i] = 0.0 if st.y[i] > 50 else 100.0
+        p2, *_ = L.loo_predict(st.X, poisoned)
+        assert p2[i] == pred[i], (st.st.pairs[i][0], p2[i], pred[i])
+        others = [abs(p2[j] - pred[j]) for j in range(len(pred)) if j != i]
+        assert max(others) > 1e-6, "the poisoned label changed nothing anywhere"
+
+
+def test_the_value_model_cannot_see_the_cv_it_is_fitted_on():
+    """The value model is what removes planner.py's smuggled assumption, and trained_eval.log
+    section 2 holds a CV out of every fit. Same test as the screener's, at the row the
+    planner actually consumes: shift every label of the held-out CV's passages and require
+    its predictions to be bit-identical, while a model allowed to train on them moves."""
+    import numpy as np
+
+    st = _trained_study()
+    L, Xv, yv, owner = st.L, st.Xv, st.yv, st.owner
+    for cv in (0, len(st.pairs) - 1):
+        sel = owner == cv
+        poisoned = yv.copy()
+        poisoned[sel] = np.clip(yv[sel] + 0.5, 0.0, 1.0)
+        assert not np.array_equal(poisoned[sel], yv[sel]), "the poison did not land"
+        clean = L.fit_value_model(Xv, yv, owner, cv).predict(Xv[sel])
+        swapped = L.fit_value_model(Xv, poisoned, owner, cv).predict(Xv[sel])
+        assert np.array_equal(clean, swapped), cv
+        inside = L.fit_value_model(Xv, poisoned, owner).predict(Xv[sel])
+        assert not np.array_equal(clean, inside), \
+            "a model trained on the changed labels did not change: the fit is not reading y"
+
+
+def test_the_retrieval_signal_arm_excludes_the_term_rules_own_output():
+    """trained_eval.log reports two trained screeners, and only the retrieval-signals arm can
+    be read as learning to screen from retrieval alone: the full arm is given the term rule's
+    own coverage, so it measures calibration. That split lives in one frozenset, so pin it -
+    and pin the feature order the log's weight list is printed in."""
+    st = _trained_study()
+    L = st.L
+    assert set(st.names) - set(st.names_r) == {"coverage mean", "coverage max",
+                                               "fraction matched"}, (st.names, st.names_r)
+    assert set(st.names_r) == set(L.RETRIEVAL_ONLY), st.names_r
+    assert len(st.names) == len(st.rows[0]) == 10, st.names
+    assert st.X.shape == (len(st.rows), len(st.names)), st.X.shape
+    assert st.Xr.shape == (len(st.rows), len(st.names_r)), st.Xr.shape
+
+
+def test_the_permutation_p_is_seeded_and_tightens_with_the_ranking():
+    """n=33 is the whole dataset, so every rho in the trained log is quoted with a
+    permutation p-value - a number a reader could otherwise not tell from a coin flip. It
+    has to be the same number on every machine, so it is seeded, and it has to behave: a
+    perfect ranking cannot have a looser p than a mis-ranked one, and p must stay on the
+    (w+1)/(n+1) grid the function documents."""
+    import numpy as np
+
+    st = _trained_study()
+    L, gold = st.L, st.y
+    p1 = L.permutation_p(st.pred, gold, n=100)
+    assert p1 == L.permutation_p(st.pred, gold, n=100), "the seed does not fix the draw"
+    assert 0.0 < p1 <= 1.0 and abs(p1 * 101 - round(p1 * 101)) < 1e-9, p1
+    loose = gold.copy()
+    loose[0], loose[-1] = loose[-1], loose[0]
+    perfect, ranked = L.permutation_p(gold, gold, n=100), L.permutation_p(loose, gold, n=100)
+    assert perfect <= ranked, (perfect, ranked)
+    assert abs(ranked - 1 / 101) < 1e-9 or ranked > perfect, (perfect, ranked)
+
+
+def test_the_planning_log_is_what_the_planner_still_produces():
+    """planning_eval.log is the artifact the planning arm is quoted from and no model wrote
+    any row of it: each is rag/planner.py plus the shared term rule over the committed 33
+    CVs. A change to the beam default, the budget formula, the relax rounds or the stem
+    folds invalidates the quoted numbers silently, so re-play the policies, the budget x
+    beam grid, the ranking ablation and the sensing rows against the log's own cells."""
+    st = _planning_study()
+    log = (DATA.parent / "planning_eval.log").read_text(encoding="utf-8-sig")
+
+    rows = _log_table(log, "1) the three policies", "   no timing column")
+    assert len(rows) == 3, rows
+    replay = {"Retrieval-only (chunk similarity)":
+              [screen_resume(rid, st.jd, st.index, RetrievalOnlyLLM(), mode="rag",
+                             full_text=t, top_k=st.PE.TOP_K) for rid, t in st.pairs],
+              "Keyword coverage (whole document)":
+              [screen_resume(rid, st.jd, st.index, KeywordCoverageLLM(), mode="rag",
+                             full_text=t, top_k=st.PE.TOP_K) for rid, t in st.pairs],
+              "Fixed top-k passages (select_evidence)": st.fixed}
+    # 7 numeric columns: n spearman kendall distinct modal_share mae within_10
+    for tok in rows:
+        name = " ".join(tok[:-7])
+        res = replay[name]
+        m = metric_row(KeywordCoverageLLM(), name, "rag", res, st.labels, "tfidf")
+        assert _matches(tok[-6], m["spearman"]), (name, tok[-6], m["spearman"])
+        assert _matches(tok[-2], m["mae"]), (name, tok[-2], m["mae"])
+
+    rows = _log_table(log, "2) the planner: budget x beam width", "   satisfied = mean")
+    assert len(rows) == len(st.PE.BEAMS) * len(st.PE.BUDGET_MULT), rows
+    for tok in rows:
+        assert len(tok) == 14, tok
+        beam, mult = int(tok[0]), float(tok[1])
+        store = st.arms[f"beam{beam}x{mult}"]
+        res = [st.PE.coverage_result(p.resume_id, p.terms, st.reqs) for p in store]
+        m = metric_row(KeywordCoverageLLM(), "planner", "rag", res, st.labels, "tfidf")
+        assert _matches(tok[-12], m["spearman"]), tok[:2]
+        assert _matches(tok[-10], m["mae"]), tok[:2]
+        assert _matches(tok[-6], sum(p.reads for p in store) / len(store)), tok[:2]
+
+    rows = _log_table(log, "3b) the choice that actually moves", "   more words can mean")
+    assert len(rows) == 2 * len(st.PE.BUDGET_MULT), rows
+    for tok in rows:
+        assert len(tok) == 8, tok
+        mult, order = float(tok[0]), tok[1]
+        store = (st.arms[f"beam8x{mult}"] if order == "goal"
+                 else st.arms[f"coverage_x{mult}"])
+        res = [st.PE.coverage_result(p.resume_id, p.terms, st.reqs) for p in store]
+        m = metric_row(KeywordCoverageLLM(), order, "rag", res, st.labels, "tfidf")
+        assert _matches(tok[2], m["spearman"]), tok[:2]
+        assert _matches(tok[3], m["mae"]), tok[:2]
+
+    rows = _log_table(log, "5) the sensing step on its own", "   the floor is the reason")
+    assert len(rows) == 3, rows
+    for tok in rows:
+        label = " ".join(tok[:-6])
+        if "never re-ask" in label:
+            store = st.arms["never_reask"]
+        elif "shipped arm" in label:
+            store = st.arms["beam8x1.0"]
+        else:
+            store = tuple(P.plan_evidence(rid, st.jd, st.index, t, beam=8, floor=0.0)
+                          for rid, t in st.pairs)
+        res = [st.PE.coverage_result(p.resume_id, p.terms, st.reqs) for p in store]
+        rho = rank_metrics([r.score for r in res], st.gold)[0]
+        assert _matches(tok[-6], rho), label
+        assert int(tok[-2]) == sum(1 for p in store if not p.reads), label
+
+
+def test_the_trained_log_is_what_the_models_still_produce():
+    """trained_eval.log quotes a leave-one-out rho, a held-out AUC and a learned-value
+    planner arm, none of which came from a model download - all three are properties of
+    rag/learn.py, rag/planner.py and the committed labels. Refitting them here and requiring
+    every cell to match is what stops a silent change of feature set, penalty grid or label
+    column from surviving into the defense."""
+    st = _trained_study()
+    L, TE, base = st.L, st.TE, st.st
+    log = (DATA.parent / "trained_eval.log").read_text(encoding="utf-8-sig")
+
+    rows = _log_table(log, "1) the trained screener", "   learned weights")
+    assert len(rows) == 4, rows
+    # 10 numeric columns: features spearman kendall mae within_10 distinct in-sample
+    # overfit gap p alpha
+    for tok, use in zip(rows[:2], (None, L.RETRIEVAL_ONLY)):
+        res, info = L.train_screener(base.index, base.pairs, base.reqs, base.labels, use=use)
+        m = metric_row(KeywordCoverageLLM(), "trained", "rag", res, base.labels, "tfidf")
+        name = " ".join(tok[:-10])
+        for back, value in ((10, len(info["features"])), (9, m["spearman"]),
+                            (7, m["mae"]), (6, m["within_10"]),
+                            (5, m["n_distinct_scores"]), (4, info["in_sample_rho"]),
+                            (3, info["in_sample_rho"] - info["loo_rho"]), (2, info["p"])):
+            assert _matches(tok[-back], value), (name, back, tok[-back], value)
+
+    rows = _log_table(log, "2) can a model learn", "   feature weights")
+    assert len(rows) == 1, rows
+    q = L.value_quality(base.index, base.reqs, base.pairs)
+    tok = rows[0][-8:]
+    for cell, key in zip(tok, ("rows", "cvs", "pearson", "rho", "auc",
+                               "mean abs err", "base rate", "alpha")):
+        assert _matches(cell, q[key]), (key, cell, q[key])
+
+    rows = _log_table(log, "3) the planner on the learned value", "   for reference")
+    assert len(rows) == 2 * len(TE.BUDGET_MULT), rows
+    same_set = {}
+    for mult in TE.BUDGET_MULT:
+        learned, rule = st.learned[mult], base.arms[f"beam8x{mult}"]
+        same_set[mult] = sum(1 for a, b in zip(rule, learned)
+                             if {c.idx for _, c in a.passages}
+                             == {c.idx for _, c in b.passages})
+    for tok in rows:
+        mode, mult = " ".join(tok[:-9]), float(tok[-9])
+        store = (st.learned[mult] if mode == "learned value"
+                 else base.arms[f"beam8x{mult}"])
+        res = [TE.coverage_result(p.resume_id, p.terms, base.reqs) for p in store]
+        m = metric_row(KeywordCoverageLLM(), mode, "rag", res, base.labels, "tfidf")
+        # 9 numeric columns: budget x spearman kendall mae within_10 passages
+        # words spent satisfied same set as rule arm
+        assert _matches(tok[-8], m["spearman"]), tok[:2]
+        assert _matches(tok[-6], m["mae"]), tok[:2]
+        if mode == "learned value":
+            assert _matches(tok[-1], same_set[mult]), (mult, tok[-1], same_set[mult])
 
 
 def main():

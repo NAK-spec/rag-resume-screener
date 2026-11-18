@@ -517,6 +517,12 @@ def page_study_config():
             ("keyword_coverage_eval.log", "the two no-LLM scorers measured against the same "
                                           "labels: rho 0.306 chunk similarity, 0.787 keyword "
                                           "coverage"),
+            ("planning_eval.log", "the same budget spent by a forward search instead of by "
+                                  "ranking: 0.717 → 0.752 shipped, 0.789 at 2x, beam width "
+                                  "worth nothing at this budget"),
+            ("trained_eval.log", "ridge screener and passage-value model fitted on the 33 "
+                                 "labels, leave-one-out: MAE 14.06 vs the rule's 22.45 at rho "
+                                 "0.771 vs 0.787"),
             ("bias_q4.log", "identity-vs-placebo audit: no effect separable, n_effective = 1"),
             ("ARTIFACTS.md", "index of every committed measurement - read it before quoting "
                              "any results_*.csv; three configurations disagree"),

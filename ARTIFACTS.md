@@ -349,6 +349,44 @@ rather than from the committed CSV, and adds the reason: a single exact keyword 
 90-word TF-IDF chunk scores ~0.06, under the 0.175 the similarity anchors need for a match,
 so 28 of 33 CVs come back with an empty matched list.
 
+## Choosing the evidence by searching instead of ranking
+
+| file | what it is |
+|---|---|
+| `planning_eval.log` | `python planning_eval.py > planning_eval.log` (**measured 17.5 s**, no GGUF, no torch, verified `cmp`-identical across two separate processes) - the same 33 CVs, the same rubric labels and the same keyword rule, with the evidence block chosen by a planner (`rag/planner.py`) instead of by `select_evidence`. Section 1 re-measures the three policies that already exist (**retrieval-only +0.306**, **whole-document keyword +0.787**, **fixed top-k passages +0.717** at 1.45 of 6 requirements evidenced). Section 2 is the budget × beam grid: the shipped-budget arm reaches **+0.752** and the best arm **+0.789 at 2× the budget** (1.82 passages, 136 of 234 words), against the whole-document ceiling of +0.787 at 2.36 evidenced. Section 3 is the search ablation, and it is the honest one: greedy (beam 1) reads differently from beam 8 on **0 / 1 / 3 / 0** of 33 CVs at the four budgets, and at the shipped budget greedy's +0.763 *beats* beam 8's +0.752. Section 3b shows what actually moves the numbers - ranking states by the goal predicate (+0.752, and it scores below the similarity ranking on 2 CVs) or by the graded coverage (+0.777, 0 CVs below), plus the non-monotonicity the goal ordering costs: across 99 budget steps it hands a CV a lower score than a smaller budget gave it **3** times, `coverage` **0**. Section 5 prices the `relax` action (re-ask unsatisfied requirements at a halved floor): **0.770 → 0.752** in exchange for **2 CVs → 0 CVs** left with no evidence at all. Section 6 is the class breakdown, and the committed Q4_K_M row (+0.753 / MAE 23.91 / 5 distinct / 13.328 s per CV) is quoted from `results_v2.csv`, not re-measured |
+| `planning_eval.py` | the script. Grids are constants here rather than flags so the log reproduces; every rho goes through `evaluate.metric_row`/`rank_metrics`, so the columns are the same definition as `results_v2.csv`'s, and the planner's plans are graded by `rag.llm.keyword_coverage` - the identical rule the keyword arm uses - so the only variable is which passages the budget went on |
+| `rag/planner.py` | the planner: STRIPS-style actions (`explore` a requirement, `relax` a floor, `read` a passage), an explicit state (terms read, words spent, per-requirement coverage), a goal at `KEYWORD_MATCH_FRACTION`, and depth-synchronised greedy best-first search with a beam. Its own docstring states the assumption the arm smuggles: `rag/index.py` holds every chunk's text, so a `read` action's effect is known before it runs - this is budgeted maximum-coverage solved by forward search, an upper bound on *selection*, not information gathering under uncertainty. `plan.pool` records the readable set a plan was chosen from, which a later re-ask widens without changing the plan |
+| `tests/test_pipeline.py` | pins the mechanism, not just the numbers: the budget is never overspent except by the exempted first read (and then only by the cheapest passage), every step replays legally from the empty state, the same CV gets the same plan twice, `coverage` ordering is budget-monotone where `goal` is not, the two floor-blind CVs come back only via `relax`, `screen_resume_planned` returns the same `Result` record the LLM arms return, and `test_the_planning_log_is_what_the_planner_still_produces` re-plays sections 1, 2, 3b and 5 against the log's own cells |
+
+**What those numbers may and may not be used for.** +0.789 is not a better *screener* than
++0.787 - it is a better *selection* under a word budget, scored by the same presence rule that
+generated it, and it needs 2× the prompt words the shipped pipeline gets. The defensible
+sentence is the ablation: once the budget is the one the framework actually ships, planning
+beats the similarity ranking (+0.717 → +0.752/+0.777) but the search adds nothing over greedy,
+because a plan at that budget is 1.1 passages. The planner also inherits the retriever: which
+passages are even readable is a TF-IDF geometry decision (`retrieval_quality.log`,
+`geometry_sweep.log`), unlike the whole-document keyword arm.
+
+## Fitting the scorer and the passage value instead of typing them
+
+| file | what it is |
+|---|---|
+| `trained_eval.log` | `python trained_eval.py > trained_eval.log` (**measured 12.9 s**, no GGUF, no torch, verified `cmp`-identical across two separate processes) - the only two components in the study whose parameters are learned from data. Section 1: a ridge screener fitted on the 33 human labels, leave-one-out, **rho +0.771 / MAE 14.06 / within-10 0.515 / 26 distinct scores / permutation p 0.000999**, against the same rule's hand-written +0.787 / MAE 22.45 - it ranks slightly worse and is **8.39 points better on absolute error**, which is the sentence that needs the MAE column. The retrieval-signals-only arm (**+0.686**, p 0.001998) is the one that can be read as learning to screen from retrieval; the full arm is given the term rule's own coverage, so it is a calibration. The in-sample rho is 0.847, printed beside the out-of-fold one so the overfit gap (0.078) is visible. Section 2: the passage-value model distilled from the term rule using retrieval features only, held out CV by CV - **666 rows, pearson 0.806, rho 0.787, AUC 0.926, MAE 0.107** against a 12.8% base rate, with similarity carrying the fit and every geometry feature sitting near zero. Section 3: the planner searching on that learned value instead of the rule it is graded on - **+0.797 vs +0.752** at the shipped budget (+0.045, same read set on 22/33 CVs), **+0.759 vs +0.789** at 2× (-0.030, 12/33), and identical at 4× |
+| `trained_eval.py` | the script. Same `metric_row`/`rank_metrics` columns, same shared `keyword_coverage` grading for the planner arms, and every quoted figure is computed from the run rather than typed into the print, so a refit that moves a number moves the log line with it |
+| `rag/learn.py` | the two fits. `RidgeCV` over 12 penalties chosen by generalised CV *inside each training fold* (not `cv=LeaveOneOut()`, which warns and returns non-finite scores on 32-row folds), `screener_features` returns the 10 signals a scorer is allowed to see, `RETRIEVAL_ONLY` is the subset that excludes the term rule's output, `value_rows` builds one row per (CV, chunk, requirement) from similarity, rank and document geometry with the term rule appearing **only as the label**, and `permutation_p` is seeded because a log that quotes a p-value has to quote the same one everywhere |
+| `tests/test_pipeline.py` | two poison tests, which is the only proof that "leave-one-out" means something here: flip one CV's human label to its opposite and its own prediction must not move by a bit while the other 32 do; shift every label of a held-out CV and its passage-value predictions must be bit-identical, while a model allowed to train on them must change. Plus the feature-set split, the seeded-and-monotone p-value, and `test_the_trained_log_is_what_the_models_still_produce` re-playing all three sections against the log's cells |
+
+**What those numbers may and may not be used for.** n=33 is the entire dataset: 10 weights
+fitted on it and each row held out is the honest design available at this size, and the
+permutation p is what says whether the rho could come from shuffled labels - not evidence that
+a learned screener transfers to a new requisition or a real corpus. The value model is
+distilled from the term rule, so it can only reproduce what similarity and geometry carry of
+it; "without opening the passage" means without looking up *which* terms are in it, and
+nothing stronger. Neither arm ran an LLM, so neither carries the latency column the cost
+comparison needs. And the trained screener's win is on absolute error, not on ranking: the
+hand-written keyword rule still ranks higher (+0.787 vs +0.771), which is why both numbers are
+quoted instead of the better-looking one.
+
 ## Scoring a geometry on a CPU runner (a job definition, not an artifact)
 
 | file | what it is |

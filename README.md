@@ -126,6 +126,8 @@ python power_analysis.py     # what this design could have detected, and its rho
 python retrieval_quality.py  # what the retriever actually delivers, vs the generator's record (no LLM)
 python geometry_sweep.py     # the chunk/budget/top-k/floor frontier against score ceiling (no LLM)
 python keyword_coverage_eval.py  # the two no-model scorers, rho/MAE vs the rubric (no LLM)
+python planning_eval.py          # the evidence chosen by a forward search, not by ranking (no LLM)
+python trained_eval.py           # ridge screener + passage-value model, both fitted on the labels (no LLM)
 python evaluate.py --embedder tfidf --chunk-words 45 --chunk-overlap 10 \
   --out results_4510.csv --dump per_resume_4510.csv   # score the geometry the frontier recommends
 python bias_audit.py --limit 6 --embedder tfidf --model "Q4_K_M (4-bit)" --out bias_q4.csv
@@ -258,7 +260,11 @@ that was suspended: the laptop sleeping mid-generation is counted as elapsed tim
 how the dense repeat ended up with a 421,575-second row and a still-correct score. The runner's fast
 stages were executed end to end and reproduce the committed artifacts exactly - all three
 sweep grids and the fallback per-resume rows match - so `.\run_study.ps1` is a verified path,
-not an untested script. The equivalent commands:
+not an untested script. The three scorer-arm stages added to it (keyword / planning / trained)
+were run through that same `Step` + `Tee-Object` shape and their output matches the committed
+`keyword_coverage_eval.log`, `planning_eval.log` and `trained_eval.log` on every line once the
+UTF-16LE is converted; those scripts also reproduce their own logs byte-identically when run
+directly with `>` from two separate processes. The equivalent commands:
 
 ```
 python evaluate.py --embedder tfidf --out results_v2.csv --dump per_resume_v2.csv
@@ -277,6 +283,8 @@ python power_analysis.py                                 # -> power_analysis.log
 python retrieval_quality.py                              # -> retrieval_quality.log, no LLM, ~25 s
 python geometry_sweep.py                                 # -> geometry_sweep.log, no LLM, ~1-2 min
 python keyword_coverage_eval.py                          # -> keyword_coverage_eval.log, no LLM, ~10 s
+python planning_eval.py                                  # -> planning_eval.log, no LLM, 17.5 s measured
+python trained_eval.py                                   # -> trained_eval.log, no LLM, 12.9 s measured
 ```
 
 ### RAG vs full context, same model
@@ -945,7 +953,113 @@ by construction: pasting the whole document is the baseline RAG exists to beat o
 not a candidate configuration - which is why, on tfidf, ceiling 0.95 is reachable only by rows
 that deliver 0.97 of the CV or more, while on dense 400/0 gets there at 0.94.
 
+### Choosing the evidence by searching instead of ranking (planning arm, no LLM)
+
+Everything above spends the evidence budget the same way: `select_evidence` ranks the de-duplicated
+top-k hits by similarity and truncates. That choice has never been tested, because nothing in it
+depends on what the passages actually say. `python planning_eval.py` (17.5 s measured, no GGUF, no
+torch; `planning_eval.log`) replaces it with a planner (`rag/planner.py`) - STRIPS-style actions
+(`explore` a requirement, `relax` a floor, `read` a passage), an explicit state, a goal at
+`KEYWORD_MATCH_FRACTION`, and a beam search - and grades it with the *same* keyword rule, on the
+*same* 33 CVs, so the only variable is which passages the words went on:
+
+| policy | rho | MAE | passages | words spent | requirements evidenced |
+|---|---|---|---|---|---|
+| fixed top-k (`select_evidence`, what ships) | 0.717 | 31.42 | 1.03 | 69 of a mean 117-word budget | 1.45 of 6 |
+| planner, greedy, shipped budget | 0.763 | 28.82 | 1.09 | 78 | 1.67 |
+| planner, beam 8, shipped budget | 0.752 | 28.67 | 1.12 | 79 | 1.70 |
+| planner, beam 8, 2x budget | **0.789** | 23.30 | 1.82 | 136 | 2.33 |
+| whole document, no retrieval (ceiling) | 0.787 | 22.45 | all | 222 | 2.36 |
+
+Four things this measures, and the first is a negative result:
+
+- **Search buys nothing over greedy.** Beam 8 changes the read set on 0 / 1 / 3 / 0 of 33 CVs
+  against greedy at budgets x0.5 / x1 / x2 / x4, and at the shipped budget greedy *wins* (0.763
+  against 0.752). The reason is in the budget column: a plan at the shipped budget is 1.1
+  passages, so there is almost no lookahead to do.
+- **What does move the number is the objective the states are ranked by.** Ranking search states
+  by the classical goal predicate (a requirement is satisfied or it is not) gives 0.752 at the
+  shipped budget; ranking them by the graded coverage gives 0.777. The goal ordering is also the
+  one that can make more words mean a *lower* score: across the 99 budget steps of the grid it
+  hands a CV less than a smaller budget gave it 3 times, `coverage` 0. `plan_evidence` still
+  defaults to `order="goal"` - it is the classical choice and the best arm at 2x budget (0.789
+  against 0.786) - so the shipped default is stated here rather than quietly re-tuned, and the
+  two rows are both in the log.
+- **The re-ask action is what rescues the floor-blind CVs.** Exploring once at the committed
+  floor and never re-asking scores 0.770 and leaves **2 of 33 CVs with no evidence at all**; the
+  shipped arm re-asks unsatisfied requirements at a halved floor, scores 0.752, and leaves none.
+  That is the whole trade: 0.018 of rho for the end of "a CV is scored on an empty prompt".
+- **The scale problem survives planning.** Class means (label / planner / whole-document) are
+  strong 93.7 / 47.7 / 54.0, medium 65.8 / 31.9 / 43.1, weak 21.0 / 15.3 / 18.6. Better selection
+  moves the ranking, not the calibration.
+
+What this does **not** license: `rag/index.py` holds every chunk's text, so a `read` action's
+effect is known before it runs. That makes this budgeted maximum-coverage solved by forward
+search - an upper bound on evidence *selection*, computed by a planner optimising the very
+function it is graded on, and no language comprehension anywhere in it (it cannot tell "built a
+churn model" from "trained on churn models", which is the thing the Q4_K_M row is in the loop
+for). It also inherits the retriever: which passages are even readable is a TF-IDF geometry
+decision (`retrieval_quality.log`, `geometry_sweep.log`), unlike the whole-document keyword arm.
+For scale the log quotes the committed Q4_K_M row rather than re-measuring it: +0.753 / MAE 23.91
+against the planner's +0.752 / 28.67 at the same budget - a term rule reading a *searched* passage
+set ranking in the same band as a 1.1 GB quantized model reading the fixed top-k passages the
+shipped pipeline selects. On ranking only, and with the comprehension caveat above attached.
+The mechanism is pinned by 9 tests in `tests/test_pipeline.py` - the budget is never overspent
+except by the exempted first read, every step replays legally from the empty state, the same CV
+gets the same plan twice, `coverage` is budget-monotone where `goal` is not, the two floor-blind
+CVs come back only via `relax`, and `test_the_planning_log_is_what_the_planner_still_produces`
+re-plays sections 1, 2, 3b and 5 against the log's own cells.
+
+### Fitting the scorer and the passage value instead of typing them (trained arms, no LLM)
+
+Every other scorer in this study has hand-written parameters: the term rule's 0.6 threshold, the
+similarity floor, the planner's goal. `python trained_eval.py` (12.9 s measured, scikit-learn, no
+GGUF; `trained_eval.log`) fits two of those places from data and reports what the fitting is
+worth. All of it is leave-one-out - the model that scored a CV was fitted on the other 32 - and
+`rag/learn.py` prints the in-sample number beside the out-of-fold one so the overfit gap is
+visible rather than asserted away.
+
+| arm | rho | MAE | within ±10 | distinct scores | in-sample rho | permutation p |
+|---|---|---|---|---|---|---|
+| trained ridge, full signals (10 features) | 0.771 | **14.06** | **0.515** | 26 | 0.847 (gap 0.078) | 0.000999 |
+| trained ridge, retrieval signals only (7) | 0.686 | 16.58 | 0.394 | 26 | 0.802 (gap 0.110) | 0.001998 |
+| hand-written keyword rule | **0.787** | 22.45 | 0.242 | 24 | 0.787 (no parameters) | 0.000999 |
+| hand-written retrieval-only score | 0.306 | 54.48 | 0.061 | 12 | 0.306 | 0.083916 |
+
+- **Learning the weights buys absolute error, not ranking.** The trained screener ranks 0.016
+  *worse* than the rule it was graded against and is 8.39 points better on MAE, and its ±10 hit
+  rate more than doubles (0.242 -> 0.515) - which is what fitting a scale onto the labels does,
+  against a rule whose number is a percentage of terms present. That is only readable from the
+  MAE and within-10 columns, which is why all four rows are quoted.
+- **The full-signal arm is a calibration, not a learned screener.** It is handed the term rule's
+  own coverage (its top weight, +25.17 per std-dev), so the honest "learned from retrieval" row is
+  the 7-feature one at 0.686 - still 0.38 of rho above the untrained retrieval-only score.
+- **A passage's worth is predictable from retrieval geometry alone.** The value model - similarity,
+  rank, position, length, never the passage's term set - is held out CV by CV over 666 rows at
+  pearson 0.806, rho 0.787, **AUC 0.926** against a 12.8% base rate, mean abs error 0.107. All of
+  it sits in one feature (similarity +5.59; every geometry feature within 0.25 of zero), so
+  "which passage answers this requirement" is near-linearly decidable without opening the
+  passage - which is exactly the assumption a learned lookahead planner needs.
+- **Fed to the planner, that learned value helps where the budget is tight and hurts where it is
+  not:** +0.797 against the rule's +0.752 at the shipped budget (+0.045, and it picks the same read
+  set on 22 of 33 CVs), **+0.759 against +0.789 at 2x (-0.030)**, and identical at 4x. The
+  estimates only have to be right once when the plan is one passage; given more words the planner
+  spends them on passages the rule would not have chosen.
+
+The limits are stated in the log too, and they are hard: these are linear models over signals the
+pipeline already computes - nothing here read a CV - and n = 33 is the entire dataset, so the
+permutation p-value says whether a rho this size could come from shuffled labels and nothing about
+whether the fit transfers to a new requisition or a real corpus. The value model is distilled from
+the term rule, so it cannot rank better than what similarity carries of that rule. Neither arm
+carries a latency column, so neither can be compared with the Q4_K_M row's 13.3 s per CV. Two
+poison tests are the proof that "leave-one-out" means something here: flip one CV's human label to
+its opposite and its own prediction must not move by a bit while the other 32 do; shift every
+label of a held-out CV and its passage-value predictions must come back bit-identical, while a
+model allowed to train on them must change.
+
 ### Fairness audit (6 base resumes x 19 variants = 114 screenings, 108 comparisons)
+
+
 
 `bias_audit.py --limit 6 --embedder tfidf --model "Q4_K_M (4-bit)"` at the study's floor
 (0.024): each base resume is stripped of its candidate line, scored as a baseline, then
@@ -1089,6 +1203,19 @@ be compared against "the score moves by this much anyway".
   scored at any of these cells**, so every one of those numbers is a ceiling, not a result. That
   gap is now a dispatchable job rather than an open laptop run: see
   `.github/workflows/score-geometry.yml`.
+- **The planning and trained arms price the *scorer*, and the planner grades its own homework.**
+  `planning_eval.log` searches over passages that a keyword rule then scores, and `rag/index.py`
+  holds every chunk's text, so a `read` action's effect is known before it runs: +0.789 (2x budget)
+  is an upper bound on evidence *selection*, not a screener that had to learn what good evidence
+  looks like, and no LLM ran in either arm. The search ablation is the honest headline - beam 8
+  reads differently from greedy on 1 of 33 CVs at the shipped budget and on 3 of 33 at 2x - and
+  `plan_evidence` still defaults to the classical `order="goal"`, which this grid shows ranking
+  *below* `coverage` at that budget (+0.752 against +0.777) and being the ordering that can return
+  a lower score for a bigger budget (3 of 99 steps). `trained_eval.log` fits 10 ridge weights on
+  n = 33 with every row held out and distils a passage-value model from the term rule; what it buys
+  is absolute error (MAE 14.06 against the rule's 22.45) rather than ranking (0.771 against 0.787),
+  and the learned planner value is +0.045 of rho at the shipped budget and -0.030 at 2x. Neither
+  result transfers to a new requisition or a real corpus on this evidence.
 - The dataset's text defect is **fixed and re-measured, and the fix was cosmetic** - which is
   now a measurement rather than an assumption. 10 of the 30 generated resumes had experience
   ranges running backwards (`Experience: BI Analyst (fintech, 2023-2022)`) because the
@@ -1141,13 +1268,22 @@ The results section above records what this design did and did not establish.
 - [PRESENTATION.md](PRESENTATION.md) is the defense outline: one slide per result section, each
   figure pointing at the artifact it was measured in, plus the list of sentences this study does
   **not** support. It cites committed numbers only - it contains no measurement of its own.
-- `tests/test_pipeline.py` holds 31 tests and covers the mechanisms the results sections
+- `tests/test_pipeline.py` holds 57 tests and covers the mechanisms the results sections
   argues from - the evidence budget, the relevance floor rejecting spurious passages, a
   rejected requirement never being reported as matched, the loud embedder fallback guard,
   the two floors being on different scales, the floor ladder sections 8-9 re-fit on being
   bounded by each embedder's own anchors with a tie going to the shorter prompt, the chunk
   counts and gate values `score-geometry.yml` will refuse to model-run without, and the
-  degeneracy metrics that stop a near-constant scorer being quoted as a correlation. It runs
-  offline in ~45 s measured on this machine (TF-IDF only, no GGUF loaded, no GPU, no network -
+  degeneracy metrics that stop a near-constant scorer being quoted as a correlation. 14 of
+  them belong to the two newest arms: 9 for the planner (budget never overspent except by the
+  exempted first read, every step replays from the empty state, the same CV gets the same plan
+  twice, `coverage` budget-monotone where `goal` is not, the floor-blind CVs returning only via
+  `relax`, noisy-OR never undoing evidence) and 5 for the trained ones, including the two poison
+  tests that are the only proof "leave-one-out" means something here. Three re-play a committed
+  eval log (`keyword_coverage_eval.log`, `planning_eval.log`, `trained_eval.log`) cell by cell
+  against a fresh run, and one checks the runner's gate expectations against `geometry_sweep.log`,
+  so a script that silently changes a number fails a test rather than a reader. It runs offline in
+  26.5-28.4 s measured over four runs
+  on this machine (57 tests, TF-IDF only, no GGUF loaded, no GPU, no network -
   one test does read the weights file to check the runner's sha256 pin, and skips that when the
   file is absent).

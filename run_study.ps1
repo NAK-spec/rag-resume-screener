@@ -2,7 +2,8 @@
     run_study.ps1 - reproduce the study in README.md, cheapest checks first.
 
     .\run_study.ps1 -DryRun          # print the plan, run nothing
-    .\run_study.ps1                  # fast stages only: tests, checker, sweeps, baseline, significance
+    .\run_study.ps1                  # fast stages only: tests, checker, sweeps, baseline, significance,
+                                     # power, delivery, geometry, scorer arms (no GGUF)
     .\run_study.ps1 -WithModel       # + the Q4_K_M evaluation (~20 min CPU per run)
     .\run_study.ps1 -WithModel -Repeat 2   # ...twice, so the headline is a pair
     .\run_study.ps1 -WithModel -WithDense  # + the dense-embedder run (~20 min CPU)
@@ -112,6 +113,24 @@ Step "retrieval delivery against provenance (no LLM)" {
 Step "retrieval geometry frontier (no LLM)" {
     & $py geometry_sweep.py | Tee-Object "$OutPrefix`_geometry.log"
 } "~1-2 min, loads torch for the dense side, no GGUF"
+
+# The three arms that price the *scorer* rather than the retriever. None of them loads a GGUF
+# or torch: keyword_coverage_eval.py scores the two no-model scorers, planning_eval.py re-runs
+# the evidence choice as a forward search (rag/planner.py), and trained_eval.py fits the ridge
+# screener and the passage-value model with scikit-learn. Each one quotes the committed
+# results_v2.csv Q4_K_M row for scale instead of re-measuring it, and prints its own geometry in
+# its first lines, so a fresh run can be read beside the committed .log. Verified directly
+# (python X.py > /tmp/X.log twice, then cmp) rather than through this runner: the committed
+# planning_eval.log and trained_eval.log reproduce byte-identically.
+Step "the two no-model scorers, vs the rubric (no LLM)" {
+    & $py keyword_coverage_eval.py | Tee-Object "$OutPrefix`_keyword.log"
+} "~10 s, no GGUF"
+Step "evidence chosen by planning instead of ranking (no LLM)" {
+    & $py planning_eval.py | Tee-Object "$OutPrefix`_planning.log"
+} "~18 s, no GGUF"
+Step "trained screener + trained passage value (no LLM)" {
+    & $py trained_eval.py | Tee-Object "$OutPrefix`_trained.log"
+} "~13 s, no GGUF"
 
 # This script stops at the frontier on purpose. The experiment it recommends - Q4_K_M scored at
 # chunk 45/10 - is `evaluate.py --chunk-words 45 --chunk-overlap 10`, and on a machine that should

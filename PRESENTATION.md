@@ -39,6 +39,8 @@ rebuttal for free.
 | 18 | Reproducibility | byte-identical repeats, self-checking scripts, indexed artifacts |
 | 19 | Limitations | one slide, said out loud, before anyone asks |
 | 20 | Contributions and next work | three contributions, one cheap next experiment |
+| B1 | Backup: evidence chosen by planning | searching the same budget beats ranking it (0.717 → 0.752), the beam buys nothing, and the objective moves the number |
+| B2 | Backup: fitted instead of hand-written | a ridge screener on the same 33 labels: MAE 14.06 vs 22.45, rho 0.771 vs 0.787 - it wins on scale, not on ranking |
 
 ---
 
@@ -278,6 +280,9 @@ identity question is open, and the instrument is too coarse to close it.
   cosmetic, and that is a measurement rather than an assumption.
 - `run_study.ps1` reproduces every artifact; every artifact is indexed in `ARTIFACTS.md`,
   including which files must not be quoted.
+- 57 regression tests run offline in 27 s (no GGUF, no network), including three that re-play a
+  committed log cell by cell against a fresh run and two poison tests that prove the
+  leave-one-out fits cannot see the label they predict.
 
 ### 19. Limitations (read them, do not skip them)
 
@@ -320,7 +325,73 @@ Next work, in cost order:
 2. Widen the corpus toward n > 250 only if you need to resolve the embedder comparison - the power
    slide says exactly what 33 can and cannot support.
 3. A finer scorer scale (more output granularity, or rubric-decomposed sub-scores) before any new
-   model size, because the 0.864 granularity ceiling is currently the binding constraint.
+   model size, because the 0.864 granularity ceiling is currently the binding constraint. Backup
+   slide B2 is this one already measured: a ridge screener fitted on the same 33 labels emits 26
+   distinct scores, cuts MAE to 14.06 and doubles the ±10 hit rate - at rho 0.771, i.e. it fixes
+   the scale and not the ranking.
+
+---
+
+## Backup slides
+
+Say these only if asked about alternatives to the LLM, or about why the score is so coarse.
+
+### B1. Choosing the evidence by planning (`planning_eval.log`, 17.5 s, no model)
+
+The question this answers: *is `select_evidence`'s similarity ranking the right way to spend the
+word budget?* Replace it with a planner (`rag/planner.py`) - actions `explore` / `relax` / `read`,
+an explicit state, a goal at the same 0.6 match fraction, beam search - and grade both with the
+same keyword rule on the same 33 CVs.
+
+| policy | rho | MAE | passages | requirements evidenced |
+|---|---|---|---|---|
+| fixed top-k (what ships) | 0.717 | 31.42 | 1.03 | 1.45 of 6 |
+| planner, greedy, shipped budget | 0.763 | 28.82 | 1.09 | 1.67 |
+| planner, beam 8, shipped budget | 0.752 | 28.67 | 1.12 | 1.70 |
+| planner, beam 8, 2x budget | 0.789 | 23.30 | 1.82 | 2.33 |
+| whole document, no retrieval | 0.787 | 22.45 | all | 2.36 |
+
+- **What to say:** selection beats ranking at the same budget (+0.717 → +0.752); **the search
+  itself is not what does it** - beam 8 reads differently from greedy on 1 of 33 CVs at the shipped
+  budget, 3 of 33 at 2x, and greedy wins at ×1 (0.763 vs 0.752). A plan at that budget is 1.1
+  passages, so there is nothing to look ahead at.
+- **The finding that is really about the objective:** ranking search states by the classical
+  satisfied/unsatisfied goal gives 0.752, by the graded coverage 0.777 at the same budget - and the
+  goal ordering is the one that can hand a CV a *lower* score when the budget grows (3 of the 99
+  budget steps in the grid; coverage: 0). `plan_evidence` still defaults to `goal`; that is a
+  stated choice, not an oversight.
+- **And the one place planning is not free:** re-asking unsatisfied requirements at a halved floor
+  turns the 2 CVs that arrive with no evidence into 0, and costs 0.018 of rho (0.770 → 0.752).
+- **The caveat that closes the slide:** `rag/index.py` holds every chunk's text, so a read's effect
+  is known before it runs. This is budgeted maximum-coverage, an upper bound on *selection* graded
+  by a rule that cannot tell "built a churn model" from "trained on churn models". No LLM ran.
+
+### B2. Fitting the scorer and the passage value (`trained_eval.log`, 12.9 s, no model)
+
+The question this answers: *what if the numbers in the rule were learned instead of typed?* Two
+components are fitted on the 33 human labels with leave-one-out (the model that scored a CV never
+saw it - pinned by two poison tests that flip a label and check the prediction does not move).
+
+| arm | rho | MAE | within ±10 | distinct scores |
+|---|---|---|---|---|
+| trained ridge, full signals | 0.771 | **14.06** | **0.515** | 26 |
+| trained ridge, retrieval signals only | 0.686 | 16.58 | 0.394 | 26 |
+| hand-written keyword rule | **0.787** | 22.45 | 0.242 | 24 |
+| hand-written retrieval-only | 0.306 | 54.48 | 0.061 | 12 |
+| Q4_K_M (quoted from `results_v2.csv`) | 0.753 | 23.91 | 0.333 | 5 |
+
+- **What to say:** learning the weights buys *scale*, not ranking - 8.39 points of MAE and double
+  the ±10 hit rate for 0.016 less rho. The committed LLM row is quoted in the same breath because
+  this is the one place a trained linear model visibly beats it on error, and the honest sentence is
+  that it never reads a CV: it is 10 weights over signals retrieval already computed.
+- **The passage-value model** (distilled from the term rule, features = similarity/rank/position/
+  length, never the passage's term set) picks out which passage answers a requirement at **AUC
+  0.926** on held-out CVs, base rate 12.8%, with all the signal in similarity. Fed to the planner it
+  is +0.045 of rho better at the shipped budget and **−0.030 worse at 2x** - an estimate is good
+  enough when the plan is one passage and gets in the way when the plan is three.
+- **The caveat that closes the slide:** n = 33 is the whole dataset, the labels come from the same
+  rubric, the value model is a distillation of the rule it is graded on, and neither arm carries a
+  latency column, so neither can be compared with 13.3 s per CV.
 
 ---
 
@@ -349,6 +420,8 @@ pre-recorded screening. `streamlit_run.log` is app startup, not a measurement - 
 | "You never tested the geometry change you recommend." | The frontier is measured with no model (66 cells and 64 distinct configurations per embedder, floor ladder included) and the cheapest cell is priced; what is *not* done is scoring a model at it, and slide 16 says so. | `geometry_sweep.log` |
 | "Did your dataset bug change your results?" | 0 of 33 tfidf scores, 0 prompt lengths, 0 passages; 1 of 33 under dense. Old and new artifacts are both committed. | `results.csv` vs `results_v2.csv` |
 | "Is it biased?" | Unknown: no effect separable from placebo, `n_effective = 1`, instrument noise 20-60 points. | `bias_q4.log` |
+| "Why keep the LLM if a term rule with a planner ranks the same?" | Because the term rule cannot tell demonstrated from mentioned - it grades presence, and the corpus was written in the requisition's own vocabulary. The planner arm is an upper bound on *selection* with no comprehension in it, and it says so; and it is 0.752 against the LLM's 0.753 on ranking only. | `planning_eval.log` section 7, B1 |
+| "Did you try training a screener?" | Yes, two of them, leave-one-out with poison tests: MAE 14.06 vs the rule's 22.45 and rho 0.771 vs 0.787, so it fixes the scale and not the ordering. The passage-value model it feeds the planner is +0.045 rho at the shipped budget and -0.030 at 2x. | `trained_eval.log`, B2 |
 
 ## Do not say
 
@@ -362,6 +435,7 @@ pre-recorded screening. `streamlit_run.log` is app startup, not a measurement - 
 | "The system is fair / unbiased." | The audit could not separate identity from its placebo. Unresolved. |
 | "13.3 s per candidate." | Add "on this 4-thread CPU laptop", and use `avg_latency_s`, not `avg_tok_per_s`, for comparisons. |
 | "We should switch to 45/10 chunks." | Reasonable, priced, and its floor is now fitted at that geometry too (45/10's rho-best floor is the committed 0.024) - but no model ran at 45/10. Present as the next experiment, and say where it runs: `.github/workflows/score-geometry.yml` scores it on a CPU runner next to a 90/20 control from the same dispatch, because a runner row is comparable to that control and not to this laptop's 0.753. |
+| "The system plans, and a trained model does the screening." | Neither is what runs: `app.py` still screens with `select_evidence` + the chosen scorer, and both new arms are no-model measurements of the *scorer* side (`planning_eval.log`, `trained_eval.log`). The planner additionally searches against the same keyword rule that grades it, so its +0.789 is a selection upper bound, not a screener that learned anything. |
 
 ## If you want slides, not an outline
 

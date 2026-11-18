@@ -1,0 +1,65 @@
+corpus: 33 CVs | requirements: 6 | floor 0.024 | top_k 3 | match fraction 0.6 | ridge penalties searched: 12
+every rho below is out-of-fold: the model that scored a CV was fitted on the other 32. Nothing here was trained on the row it reports.
+
+1) the trained screener, against the hand-written scores it has to beat
+                                 arm  features  spearman  kendall   mae  within_10  distinct  in-sample spearman  overfit gap  p (permutation) alpha
+               trained, full signals        10     0.771    0.608 14.06      0.515        26               0.847        0.078         0.000999  0.01
+     trained, retrieval signals only         7     0.686    0.531 16.58      0.394        26               0.802        0.110         0.001998  0.01
+hand-written keyword rule (whole CV)         0     0.787    0.635 22.45      0.242        24               0.787        0.000         0.000999   n/a
+   hand-written retrieval-only score         0     0.306    0.249 54.48      0.061        12               0.306        0.000         0.083916   n/a
+   learned weights (feature std-devs of score per std-dev of signal), full-signal arm:
+      coverage mean            +25.166
+      document words            +4.904
+      chunks                    +3.799
+      coverage max              -3.206
+      sim max                   -2.948
+      evidence share            -0.508
+      sim spread                -0.365
+      sim mean                  +0.361
+      sim best per requirement  -0.292
+      fraction matched          +0.280
+      intercept 0.9, so a CV with every signal at its mean starts there
+   the two hand rows have no parameters, so their overfit gap is zero by definition and their p comes from the same permutation test. Read the mae column, not only spearman: the keyword rule ranks +0.016 against the trained arm and is 8.39 points worse on every score.
+
+2) can a model learn what a passage is worth without opening it?
+                                 rows   cvs  pearson    rho    auc  mean abs err  base rate  alpha
+value model, held out CV by CV  666.0  33.0    0.806  0.787  0.926         0.107      0.128   0.01
+   feature weights: similarity +5.594, rank within requirement -0.030, similarity z-score +0.032, position in CV -0.006, passage share of CV -0.023, requirement index -0.242
+   base rate: a passage answers a requirement outright 12.8% of the time, so chance would be an AUC of 0.5.
+   the signal is in one feature: similarity carries it and the geometry features sit near zero, which is why a passage that answers a requirement can be picked out of an unseen CV's candidate list 92.6% of the time without opening it.
+
+3) the planner on the learned value instead of the rule it is graded on
+ value source  budget x  spearman  kendall   mae  within_10  passages  words spent  satisfied  same set as rule arm
+         rule       1.0     0.752    0.565 28.67      0.242      1.12         79.0       1.70                   NaN
+learned value       1.0     0.797    0.615 30.06      0.152      1.12         78.0       1.48                  22.0
+         rule       2.0     0.789    0.625 23.30      0.242      1.82        136.0       2.33                   NaN
+learned value       2.0     0.759    0.600 23.64      0.242      2.42        186.0       2.30                  12.0
+         rule       4.0     0.787    0.635 22.45      0.242      1.91        146.0       2.36                   NaN
+learned value       4.0     0.787    0.635 22.45      0.242      3.18        253.0       2.36                   7.0
+   for reference, re-measured here: similarity ranking then the rule rho 0.717, whole CV then the rule rho 0.787
+   budget x1.0: learned value 0.797 vs rule 0.752 (+0.045), same read set on 22/33 CVs
+   budget x2.0: learned value 0.759 vs rule 0.789 (-0.030), same read set on 12/33 CVs
+   budget x4.0: learned value 0.787 vs rule 0.787 (+0.000), same read set on 7/33 CVs
+   the learned value is not uniformly better: where it wins it wins on the one-passage decision, and where the budget lets the planner read more it spends passages on estimates the rule would have scored differently.
+
+   for scale, the committed Q4_K_M row (quoted, not re-measured here): spearman 0.753, mae 23.91, n_distinct_scores 5, latency 13.328 s/CV
+
+4) reading, and what this does NOT say
+   - These are linear models over features the pipeline already computes. They learn
+     weights, not language: nothing here read a CV, and the trained screener's ranking is
+     only as good as the signals it was handed. That is why the full-signal arm and the
+     retrieval-signal-only arm are reported separately - the first includes the term rule's
+     own output, so it measures calibration, and only the second can be read as learning
+     to screen from retrieval alone.
+   - n=33 is the entire dataset. Fitting 10 weights on it
+     and holding each row out is the honest design available at this size, and the
+     permutation p-value is what says whether a rho this large could come from shuffled
+     labels. It is not evidence that a trained screener generalises to a new requisition
+     or a new corpus; that would need labels at a scale this study does not have.
+   - The value model is distilled from the term rule, so it can only reproduce what
+     similarity and document geometry carry of it. It never receives the passage's words
+     as a feature, but similarity was computed from those words, so "without opening it"
+     means "without looking up which terms are in it" and nothing stronger.
+   - The trained arms carry no LLM latency, so they cannot be compared with the Q4_K_M row
+     on cost per CV without the wall-clock number in that row; they are cheaper by
+     construction, and the point of measuring them is ranking quality, not speed.

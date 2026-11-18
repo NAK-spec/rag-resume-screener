@@ -1,5 +1,6 @@
 corpus: 33 CVs | requirements: 6 | chunks: 111 (3.4 per CV) | floor 0.024 | top_k 3 | match fraction 0.6
 budget: the shipped evidence_budget(resume words), mean 117 of a mean 222-word CV, range 39-192
+state ranking: `rag/planner.py` DEFAULT_ORDER = coverage is what every arm below runs; section 3b scores both orderings side by side, and flipping that one constant re-runs the whole arm under the other
 
 1) the three policies that already exist, before any planning
                                 policy  n  spearman  kendall  n_distinct_scores  modal_share   mae  within_10
@@ -12,24 +13,24 @@ Fixed top-k passages (select_evidence) 33     0.717    0.545                 25 
 2) the planner: budget x beam width, same coverage rule, same 33 CVs
  beam  budget x  spearman  kendall   mae  within_10  distinct  mean score  passages  words spent  budget  satisfied  nodes  re-asks
     1       0.5     0.724    0.558 32.42      0.091        23        26.9      1.00         59.0    59.0       1.27    3.0     0.39
-    1       1.0     0.763    0.573 28.82      0.242        22        30.5      1.09         78.0   117.0       1.67    3.0     0.36
-    1       2.0     0.780    0.614 23.45      0.242        23        36.9      1.79        136.0   234.0       2.27    4.0     0.30
+    1       1.0     0.787    0.601 28.55      0.242        22        30.8      1.09         77.0   117.0       1.58    3.0     0.36
+    1       2.0     0.788    0.632 23.15      0.242        23        37.2      1.79        135.0   234.0       2.27    4.0     0.30
     1       4.0     0.787    0.635 22.45      0.242        24        37.9      1.91        146.0   469.0       2.36    4.0     0.30
     8       0.5     0.724    0.558 32.42      0.091        23        26.9      1.00         59.0    59.0       1.27    3.0     0.39
-    8       1.0     0.752    0.565 28.67      0.242        22        30.7      1.12         79.0   117.0       1.70    6.0     0.36
-    8       2.0     0.789    0.625 23.30      0.242        24        37.1      1.82        136.0   234.0       2.33   10.0     0.30
+    8       1.0     0.777    0.593 28.39      0.242        22        30.9      1.12         78.0   117.0       1.61    6.0     0.36
+    8       2.0     0.786    0.625 23.06      0.242        24        37.3      1.79        135.0   234.0       2.27   10.0     0.30
     8       4.0     0.787    0.635 22.45      0.242        24        37.9      1.91        146.0   469.0       2.36   11.0     0.30
    24       0.5     0.724    0.558 32.42      0.091        23        26.9      1.00         59.0    59.0       1.27    3.0     0.39
-   24       1.0     0.752    0.565 28.67      0.242        22        30.7      1.12         79.0   117.0       1.70    6.0     0.36
-   24       2.0     0.789    0.625 23.30      0.242        24        37.1      1.82        136.0   234.0       2.33   11.0     0.30
+   24       1.0     0.777    0.593 28.39      0.242        22        30.9      1.12         78.0   117.0       1.61    6.0     0.36
+   24       2.0     0.786    0.625 23.06      0.242        24        37.3      1.79        135.0   234.0       2.27   11.0     0.30
    24       4.0     0.787    0.635 22.45      0.242        24        37.9      1.91        146.0   469.0       2.36   13.0     0.30
    satisfied = mean requirements at or above the match fraction; nodes = search states expanded per CV, the only cost the search itself incurs.
 
 3) what search buys over greedy at the same budget
    budget x0.5: greedy rho 0.724 | beam 8 0.724 (0/33 different read sets) | beam 24 0.724 (0/33 different from beam 8)
-   budget x1.0: greedy rho 0.763 | beam 8 0.752 (1/33 different read sets) | beam 24 0.752 (0/33 different from beam 8)
-   budget x2.0: greedy rho 0.780 | beam 8 0.789 (3/33 different read sets) | beam 24 0.789 (0/33 different from beam 8)
-   budget x4.0: greedy rho 0.787 | beam 8 0.787 (0/33 different read sets) | beam 24 0.787 (0/33 different from beam 8)
+   budget x1.0: greedy rho 0.787 | beam 8 0.777 (1/33 different read sets) | beam 24 0.777 (0/33 different from beam 8)
+   budget x2.0: greedy rho 0.788 | beam 8 0.786 (1/33 different read sets) | beam 24 0.786 (0/33 different from beam 8)
+   budget x4.0: greedy rho 0.787 | beam 8 0.787 (1/33 different read sets) | beam 24 0.787 (0/33 different from beam 8)
 
 3b) the choice that actually moves the numbers: rank states by the goal count or by the score
  budget x state ranking  spearman   mae  satisfied  mean score  passages  CVs scored below the ranking
@@ -46,20 +47,20 @@ Fixed top-k passages (select_evidence) 33     0.717    0.545                 25 
 
 4) against the two policies a planner has to beat
    fixed top-k passages (what select_evidence does)   rho 0.717  at 1.45 of 6 satisfied
-   best planner arm (beam 8, budget x2.0)      rho 0.789  at 2.33 of 6 satisfied
+   best planner arm (beam 1, budget x2.0)      rho 0.788  at 2.27 of 6 satisfied
    whole document, no retrieval at all                rho 0.787  at 2.36
    the last row is the ceiling any budget-limited policy is measured against, and it is not a prompt: it reads every word of the CV.
 
 5) the sensing step on its own (beam 8, shipped budget)
                                             sensing policy   rho   mae  passages  satisfied  CVs with no evidence  CVs with a requirement no passage answers
-           explore once at the shipped floor, never re-ask 0.770 29.39      1.00       1.61                     2                                         32
-shipped arm: re-ask unsatisfied requirements, floor halved 0.752 28.67      1.12       1.70                     0                                         32
-                   no floor: every top-k chunk is readable 0.752 28.67      1.12       1.70                     0                                         32
+           explore once at the shipped floor, never re-ask 0.781 29.27      1.00       1.55                     2                                         32
+shipped arm: re-ask unsatisfied requirements, floor halved 0.777 28.39      1.12       1.61                     0                                         32
+                   no floor: every top-k chunk is readable 0.777 28.39      1.12       1.61                     0                                         32
    the floor is the reason a CV can be scored 9/100 with every tool named (keyword_coverage_eval.log section 1); this is what the planner does about it.
 
 6) mean score by rubric class (planner at beam 8, shipped budget)
    strong       n= 9  label  93.7  planner  47.7  whole-doc  54.0
-   medium       n=13  label  65.8  planner  31.9  whole-doc  43.1
+   medium       n=13  label  65.8  planner  32.6  whole-doc  43.1
    weak         n=11  label  21.0  planner  15.3  whole-doc  18.6
 
    for scale, the committed Q4_K_M row (quoted, not re-measured here): spearman 0.753, mae 23.91, n_distinct_scores 5, latency 13.328 s/CV

@@ -39,7 +39,7 @@ rebuttal for free.
 | 18 | Reproducibility | byte-identical repeats, self-checking scripts, indexed artifacts |
 | 19 | Limitations | one slide, said out loud, before anyone asks |
 | 20 | Contributions and next work | three contributions, one cheap next experiment |
-| B1 | Backup: evidence chosen by planning | searching the same budget beats ranking it (0.717 → 0.752), the beam buys nothing, and the objective moves the number |
+| B1 | Backup: evidence chosen by planning | searching the same budget beats ranking it (0.717 → 0.777), the beam buys nothing, and the objective moves the number |
 | B2 | Backup: fitted instead of hand-written | a ridge screener on the same 33 labels: MAE 14.06 vs 22.45, rho 0.771 vs 0.787 - it wins on scale, not on ranking |
 
 ---
@@ -346,22 +346,24 @@ same keyword rule on the same 33 CVs.
 | policy | rho | MAE | passages | requirements evidenced |
 |---|---|---|---|---|
 | fixed top-k (what ships) | 0.717 | 31.42 | 1.03 | 1.45 of 6 |
-| planner, greedy, shipped budget | 0.763 | 28.82 | 1.09 | 1.67 |
-| planner, beam 8, shipped budget | 0.752 | 28.67 | 1.12 | 1.70 |
-| planner, beam 8, 2x budget | 0.789 | 23.30 | 1.82 | 2.33 |
+| planner, greedy, shipped budget | 0.787 | 28.55 | 1.09 | 1.58 |
+| planner, beam 8, shipped budget (the shipped configuration) | 0.777 | 28.39 | 1.12 | 1.61 |
+| planner, greedy, 2x budget (best arm) | 0.788 | 23.15 | 1.79 | 2.27 |
 | whole document, no retrieval | 0.787 | 22.45 | all | 2.36 |
 
-- **What to say:** selection beats ranking at the same budget (+0.717 → +0.752); **the search
-  itself is not what does it** - beam 8 reads differently from greedy on 1 of 33 CVs at the shipped
-  budget, 3 of 33 at 2x, and greedy wins at ×1 (0.763 vs 0.752). A plan at that budget is 1.1
-  passages, so there is nothing to look ahead at.
+- **What to say:** selection beats ranking at the same budget (+0.717 → +0.777); **the search
+  itself is not what does it** - beam 8 reads differently from greedy on 1 of 33 CVs at each of the
+  ×1, ×2 and ×4 budgets and 0 at ×0.5, and greedy is never behind on rho (0.787 vs 0.777 at the
+  shipped budget). A plan at that budget is 1.1 passages, so there is nothing to look ahead at.
 - **The finding that is really about the objective:** ranking search states by the classical
   satisfied/unsatisfied goal gives 0.752, by the graded coverage 0.777 at the same budget - and the
   goal ordering is the one that can hand a CV a *lower* score when the budget grows (3 of the 99
-  budget steps in the grid; coverage: 0). `plan_evidence` still defaults to `goal`; that is a
-  stated choice, not an oversight.
+  budget steps in the grid; coverage: 0). That is why the planner now ships
+  `DEFAULT_ORDER = "coverage"`: the deployed budget is the configuration the framework runs, and
+  the classical ordering's only lead is 0.003 at 2x budget on 33 CVs. One constant, and the log's
+  header names which ordering every section ran under.
 - **And the one place planning is not free:** re-asking unsatisfied requirements at a halved floor
-  turns the 2 CVs that arrive with no evidence into 0, and costs 0.018 of rho (0.770 → 0.752).
+  turns the 2 CVs that arrive with no evidence into 0, and costs 0.004 of rho (0.781 → 0.777).
 - **The caveat that closes the slide:** `rag/index.py` holds every chunk's text, so a read's effect
   is known before it runs. This is budgeted maximum-coverage, an upper bound on *selection* graded
   by a rule that cannot tell "built a churn model" from "trained on churn models". No LLM ran.
@@ -387,7 +389,7 @@ saw it - pinned by two poison tests that flip a label and check the prediction d
 - **The passage-value model** (distilled from the term rule, features = similarity/rank/position/
   length, never the passage's term set) picks out which passage answers a requirement at **AUC
   0.926** on held-out CVs, base rate 12.8%, with all the signal in similarity. Fed to the planner it
-  is +0.045 of rho better at the shipped budget and **−0.030 worse at 2x** - an estimate is good
+  is +0.012 of rho better at the shipped budget and **−0.020 worse at 2x** - an estimate is good
   enough when the plan is one passage and gets in the way when the plan is three.
 - **The caveat that closes the slide:** n = 33 is the whole dataset, the labels come from the same
   rubric, the value model is a distillation of the rule it is graded on, and neither arm carries a
@@ -420,8 +422,8 @@ pre-recorded screening. `streamlit_run.log` is app startup, not a measurement - 
 | "You never tested the geometry change you recommend." | The frontier is measured with no model (66 cells and 64 distinct configurations per embedder, floor ladder included) and the cheapest cell is priced; what is *not* done is scoring a model at it, and slide 16 says so. | `geometry_sweep.log` |
 | "Did your dataset bug change your results?" | 0 of 33 tfidf scores, 0 prompt lengths, 0 passages; 1 of 33 under dense. Old and new artifacts are both committed. | `results.csv` vs `results_v2.csv` |
 | "Is it biased?" | Unknown: no effect separable from placebo, `n_effective = 1`, instrument noise 20-60 points. | `bias_q4.log` |
-| "Why keep the LLM if a term rule with a planner ranks the same?" | Because the term rule cannot tell demonstrated from mentioned - it grades presence, and the corpus was written in the requisition's own vocabulary. The planner arm is an upper bound on *selection* with no comprehension in it, and it says so; and it is 0.752 against the LLM's 0.753 on ranking only. | `planning_eval.log` section 7, B1 |
-| "Did you try training a screener?" | Yes, two of them, leave-one-out with poison tests: MAE 14.06 vs the rule's 22.45 and rho 0.771 vs 0.787, so it fixes the scale and not the ordering. The passage-value model it feeds the planner is +0.045 rho at the shipped budget and -0.030 at 2x. | `trained_eval.log`, B2 |
+| "Why keep the LLM if a term rule with a planner ranks the same?" | Because the term rule cannot tell demonstrated from mentioned - it grades presence, and the corpus was written in the requisition's own vocabulary. The planner arm is an upper bound on *selection* with no comprehension in it, and it says so; and it is 0.777 against the LLM's 0.753 on ranking only. | `planning_eval.log` section 7, B1 |
+| "Did you try training a screener?" | Yes, two of them, leave-one-out with poison tests: MAE 14.06 vs the rule's 22.45 and rho 0.771 vs 0.787, so it fixes the scale and not the ordering. The passage-value model it feeds the planner is +0.012 rho at the shipped budget and -0.020 at 2x. | `trained_eval.log`, B2 |
 
 ## Do not say
 
@@ -435,7 +437,7 @@ pre-recorded screening. `streamlit_run.log` is app startup, not a measurement - 
 | "The system is fair / unbiased." | The audit could not separate identity from its placebo. Unresolved. |
 | "13.3 s per candidate." | Add "on this 4-thread CPU laptop", and use `avg_latency_s`, not `avg_tok_per_s`, for comparisons. |
 | "We should switch to 45/10 chunks." | Reasonable, priced, and its floor is now fitted at that geometry too (45/10's rho-best floor is the committed 0.024) - but no model ran at 45/10. Present as the next experiment, and say where it runs: `.github/workflows/score-geometry.yml` scores it on a CPU runner next to a 90/20 control from the same dispatch, because a runner row is comparable to that control and not to this laptop's 0.753. |
-| "The system plans, and a trained model does the screening." | Neither is what runs: `app.py` still screens with `select_evidence` + the chosen scorer, and both new arms are no-model measurements of the *scorer* side (`planning_eval.log`, `trained_eval.log`). The planner additionally searches against the same keyword rule that grades it, so its +0.789 is a selection upper bound, not a screener that learned anything. |
+| "The system plans, and a trained model does the screening." | Neither is what runs: `app.py` still screens with `select_evidence` + the chosen scorer, and both new arms are no-model measurements of the *scorer* side (`planning_eval.log`, `trained_eval.log`). The planner additionally searches against the same keyword rule that grades it, so its +0.788 is a selection upper bound, not a screener that learned anything. |
 
 ## If you want slides, not an outline
 

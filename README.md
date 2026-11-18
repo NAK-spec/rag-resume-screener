@@ -966,31 +966,35 @@ torch; `planning_eval.log`) replaces it with a planner (`rag/planner.py`) - STRI
 | policy | rho | MAE | passages | words spent | requirements evidenced |
 |---|---|---|---|---|---|
 | fixed top-k (`select_evidence`, what ships) | 0.717 | 31.42 | 1.03 | 69 of a mean 117-word budget | 1.45 of 6 |
-| planner, greedy, shipped budget | 0.763 | 28.82 | 1.09 | 78 | 1.67 |
-| planner, beam 8, shipped budget | 0.752 | 28.67 | 1.12 | 79 | 1.70 |
-| planner, beam 8, 2x budget | **0.789** | 23.30 | 1.82 | 136 | 2.33 |
+| planner, greedy, shipped budget | **0.787** | 28.55 | 1.09 | 77 | 1.58 |
+| planner, beam 8, shipped budget (the shipped configuration) | 0.777 | 28.39 | 1.12 | 78 | 1.61 |
+| planner, greedy, 2x budget (best arm) | **0.788** | 23.15 | 1.79 | 135 | 2.27 |
 | whole document, no retrieval (ceiling) | 0.787 | 22.45 | all | 222 | 2.36 |
 
 Four things this measures, and the first is a negative result:
 
-- **Search buys nothing over greedy.** Beam 8 changes the read set on 0 / 1 / 3 / 0 of 33 CVs
-  against greedy at budgets x0.5 / x1 / x2 / x4, and at the shipped budget greedy *wins* (0.763
-  against 0.752). The reason is in the budget column: a plan at the shipped budget is 1.1
+- **Search buys nothing over greedy.** Beam 8 changes the read set on 0 / 1 / 1 / 1 of 33 CVs
+  against greedy at budgets x0.5 / x1 / x2 / x4, and greedy is never behind: it ties at x0.5
+  (0.724) and x4 (0.787) and wins at the shipped budget (0.787 against 0.777) and at 2x (0.788
+  against 0.786). The reason is in the budget column: a plan at the shipped budget is 1.1
   passages, so there is almost no lookahead to do.
 - **What does move the number is the objective the states are ranked by.** Ranking search states
   by the classical goal predicate (a requirement is satisfied or it is not) gives 0.752 at the
   shipped budget; ranking them by the graded coverage gives 0.777. The goal ordering is also the
   one that can make more words mean a *lower* score: across the 99 budget steps of the grid it
-  hands a CV less than a smaller budget gave it 3 times, `coverage` 0. `plan_evidence` still
-  defaults to `order="goal"` - it is the classical choice and the best arm at 2x budget (0.789
-  against 0.786) - so the shipped default is stated here rather than quietly re-tuned, and the
-  two rows are both in the log.
+  hands a CV less than a smaller budget gave it 3 times, `coverage` 0. That is why
+  `rag/planner.py` now ships `DEFAULT_ORDER = "coverage"` - the deployed budget is the
+  configuration this framework ships, and the ordering that wins there wins by 0.025 on a
+  monotone curve, where the classical ordering's only lead is 0.003 at 2x budget (0.789 against
+  0.786) on 33 CVs. Flipping that one constant re-runs the whole arm under the classical
+  ordering; both rows stay in section 3b of the log, and the log's header prints which one the
+  other sections ran.
 - **The re-ask action is what rescues the floor-blind CVs.** Exploring once at the committed
-  floor and never re-asking scores 0.770 and leaves **2 of 33 CVs with no evidence at all**; the
-  shipped arm re-asks unsatisfied requirements at a halved floor, scores 0.752, and leaves none.
-  That is the whole trade: 0.018 of rho for the end of "a CV is scored on an empty prompt".
+  floor and never re-asking scores 0.781 and leaves **2 of 33 CVs with no evidence at all**; the
+  shipped arm re-asks unsatisfied requirements at a halved floor, scores 0.777, and leaves none.
+  That is the whole trade: 0.004 of rho for the end of "a CV is scored on an empty prompt".
 - **The scale problem survives planning.** Class means (label / planner / whole-document) are
-  strong 93.7 / 47.7 / 54.0, medium 65.8 / 31.9 / 43.1, weak 21.0 / 15.3 / 18.6. Better selection
+  strong 93.7 / 47.7 / 54.0, medium 65.8 / 32.6 / 43.1, weak 21.0 / 15.3 / 18.6. Better selection
   moves the ranking, not the calibration.
 
 What this does **not** license: `rag/index.py` holds every chunk's text, so a `read` action's
@@ -1001,7 +1005,7 @@ churn model" from "trained on churn models", which is the thing the Q4_K_M row i
 for). It also inherits the retriever: which passages are even readable is a TF-IDF geometry
 decision (`retrieval_quality.log`, `geometry_sweep.log`), unlike the whole-document keyword arm.
 For scale the log quotes the committed Q4_K_M row rather than re-measuring it: +0.753 / MAE 23.91
-against the planner's +0.752 / 28.67 at the same budget - a term rule reading a *searched* passage
+against the planner's +0.777 / 28.39 at the same budget - a term rule reading a *searched* passage
 set ranking in the same band as a 1.1 GB quantized model reading the fixed top-k passages the
 shipped pipeline selects. On ranking only, and with the comprehension caveat above attached.
 The mechanism is pinned by 9 tests in `tests/test_pipeline.py` - the budget is never overspent
@@ -1041,8 +1045,8 @@ visible rather than asserted away.
   "which passage answers this requirement" is near-linearly decidable without opening the
   passage - which is exactly the assumption a learned lookahead planner needs.
 - **Fed to the planner, that learned value helps where the budget is tight and hurts where it is
-  not:** +0.797 against the rule's +0.752 at the shipped budget (+0.045, and it picks the same read
-  set on 22 of 33 CVs), **+0.759 against +0.789 at 2x (-0.030)**, and identical at 4x. The
+  not:** +0.789 against the rule's +0.777 at the shipped budget (+0.012, and it picks the same read
+  set on 23 of 33 CVs), **+0.766 against +0.786 at 2x (-0.020)**, and identical at 4x. The
   estimates only have to be right once when the plan is one passage; given more words the planner
   spends them on passages the rule would not have chosen.
 
@@ -1205,16 +1209,20 @@ be compared against "the score moves by this much anyway".
   `.github/workflows/score-geometry.yml`.
 - **The planning and trained arms price the *scorer*, and the planner grades its own homework.**
   `planning_eval.log` searches over passages that a keyword rule then scores, and `rag/index.py`
-  holds every chunk's text, so a `read` action's effect is known before it runs: +0.789 (2x budget)
+  holds every chunk's text, so a `read` action's effect is known before it runs: +0.788 (2x budget)
   is an upper bound on evidence *selection*, not a screener that had to learn what good evidence
   looks like, and no LLM ran in either arm. The search ablation is the honest headline - beam 8
-  reads differently from greedy on 1 of 33 CVs at the shipped budget and on 3 of 33 at 2x - and
-  `plan_evidence` still defaults to the classical `order="goal"`, which this grid shows ranking
-  *below* `coverage` at that budget (+0.752 against +0.777) and being the ordering that can return
-  a lower score for a bigger budget (3 of 99 steps). `trained_eval.log` fits 10 ridge weights on
+  reads differently from greedy on 1 of 33 CVs at each of the x1, x2 and x4 budgets and on 0 at
+  x0.5, and greedy is never behind on rho - and the grid showed the ranking objective moving the
+  number far more than the search does, which is why `rag/planner.py` ships
+  `DEFAULT_ORDER = "coverage"`: at the deployed budget the graded-coverage ordering gives +0.777
+  against the classical goal predicate's +0.752, and it is the ordering that never returns a lower
+  score for a bigger budget (goal: 3 of 99 steps; coverage: 0). The classical ordering is still
+  nominally ahead at 2x budget (+0.789 against +0.786, 0.003 on 33 CVs), and flipping that one
+  constant re-runs the whole arm under it. `trained_eval.log` fits 10 ridge weights on
   n = 33 with every row held out and distils a passage-value model from the term rule; what it buys
   is absolute error (MAE 14.06 against the rule's 22.45) rather than ranking (0.771 against 0.787),
-  and the learned planner value is +0.045 of rho at the shipped budget and -0.030 at 2x. Neither
+  and the learned planner value is +0.012 of rho at the shipped budget and -0.020 at 2x. Neither
   result transfers to a new requisition or a real corpus on this evidence.
 - The dataset's text defect is **fixed and re-measured, and the fix was cosmetic** - which is
   now a measurement rather than an assumption. 10 of the 30 generated resumes had experience
@@ -1283,7 +1291,8 @@ The results section above records what this design did and did not establish.
   eval log (`keyword_coverage_eval.log`, `planning_eval.log`, `trained_eval.log`) cell by cell
   against a fresh run, and one checks the runner's gate expectations against `geometry_sweep.log`,
   so a script that silently changes a number fails a test rather than a reader. It runs offline in
-  26.5-28.4 s measured over four runs
+  26.0-33.5 s measured over seven runs (the spread is this laptop's thermals, not the suite - the
+  same 57 tests ran in 26 s twice, a minute after a 33.5 s run)
   on this machine (57 tests, TF-IDF only, no GGUF loaded, no GPU, no network -
   one test does read the weights file to check the runner's sha256 pin, and skips that when the
   file is absent).

@@ -30,15 +30,15 @@ value model, held out CV by CV  666.0  33.0    0.806  0.787  0.926         0.107
 
 3) the planner on the learned value instead of the rule it is graded on
  value source  budget x  spearman  kendall   mae  within_10  passages  words spent  satisfied  same set as rule arm
-         rule       1.0     0.752    0.565 28.67      0.242      1.12         79.0       1.70                   NaN
-learned value       1.0     0.797    0.615 30.06      0.152      1.12         78.0       1.48                  22.0
-         rule       2.0     0.789    0.625 23.30      0.242      1.82        136.0       2.33                   NaN
-learned value       2.0     0.759    0.600 23.64      0.242      2.42        186.0       2.30                  12.0
+         rule       1.0     0.777    0.593 28.39      0.242      1.12         78.0       1.61                   NaN
+learned value       1.0     0.789    0.609 30.24      0.152      1.12         78.0       1.52                  23.0
+         rule       2.0     0.786    0.625 23.06      0.242      1.79        135.0       2.27                   NaN
+learned value       2.0     0.766    0.609 23.64      0.242      2.42        185.0       2.30                  11.0
          rule       4.0     0.787    0.635 22.45      0.242      1.91        146.0       2.36                   NaN
 learned value       4.0     0.787    0.635 22.45      0.242      3.18        253.0       2.36                   7.0
    for reference, re-measured here: similarity ranking then the rule rho 0.717, whole CV then the rule rho 0.787
-   budget x1.0: learned value 0.797 vs rule 0.752 (+0.045), same read set on 22/33 CVs
-   budget x2.0: learned value 0.759 vs rule 0.789 (-0.030), same read set on 12/33 CVs
+   budget x1.0: learned value 0.789 vs rule 0.777 (+0.012), same read set on 23/33 CVs
+   budget x2.0: learned value 0.766 vs rule 0.786 (-0.020), same read set on 11/33 CVs
    budget x4.0: learned value 0.787 vs rule 0.787 (+0.000), same read set on 7/33 CVs
    the learned value is not uniformly better: where it wins it wins on the one-passage decision, and where the budget lets the planner read more it spends passages on estimates the rule would have scored differently.
 

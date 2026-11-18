@@ -771,16 +771,26 @@ def _planning_study():
     index.build([c for rid, t in pairs for c in chunk_text(rid, t)], extra_corpus=[jd])
     labels = PE.LABELS
 
-    def planned(beam, mult, order="goal", **kw):
+    def planned(beam, mult, order=None, **kw):
+        if order is None:
+            return tuple(P.plan_evidence(rid, jd, index, t, beam=beam,
+                                         budget=int(round(evidence_budget(len(t.split()))
+                                                          * mult)), **kw)
+                         for rid, t in pairs)
         return tuple(P.plan_evidence(rid, jd, index, t, beam=beam, order=order,
                                      budget=int(round(evidence_budget(len(t.split()))
                                                       * mult)), **kw)
                      for rid, t in pairs)
 
+    # `beam{b}x{m}` follows the module default, exactly as the log's section-2 grid does, so
+    # flipping planner.DEFAULT_ORDER moves the test and the log together. The two named
+    # orderings are section 3b's, which prints both whatever the default is.
     arms = {f"beam{beam}x{mult}": planned(beam, mult)
             for beam in PE.BEAMS for mult in PE.BUDGET_MULT}
+    other = {"goal": "coverage", "coverage": "goal"}[P.DEFAULT_ORDER]
     for mult in PE.BUDGET_MULT:
-        arms[f"coverage_x{mult}"] = planned(8, mult, order="coverage")
+        arms[f"{P.DEFAULT_ORDER}_x{mult}"] = arms[f"beam8x{mult}"]
+        arms[f"{other}_x{mult}"] = planned(8, mult, order=other)
     arms["never_reask"] = planned(8, 1.0, relax_rounds=0)
 
     fixed = []
@@ -907,13 +917,13 @@ def test_the_same_cv_gets_the_same_plan_twice():
 
 def test_only_the_goal_ranking_can_make_more_words_mean_a_lower_score():
     """A bigger budget widens the set of feasible plans, so no plan should score below what
-    the same CV scored with fewer words. The `coverage` ordering never does; the shipped
-    `goal` ordering does, three times in this grid, because ranking states by the
+    the same CV scored with fewer words. The shipped `coverage` ordering never does; the
+    classical `goal` ordering does, three times in this grid, because ranking states by the
     satisfied-predicate count first lets a wider beam keep a passage that satisfies one
     requirement outright over one that spreads more partial credit. That number is the
-    sharpest single cost of the classical choice in planning_eval.log section 3b, so it is
-    pinned to the footnote that prints it - flip the default ordering and this test, and
-    the log, both have to be re-read."""
+    sharpest single cost of the classical choice in planning_eval.log section 3b, and it is
+    why DEFAULT_ORDER is `coverage`, so it is pinned to the footnote that prints it - flip
+    the default ordering and this test, and the log, both have to be re-read."""
     st = _planning_study()
     mults = (0.5, 1.0, 2.0, 4.0)
 
@@ -923,7 +933,7 @@ def test_only_the_goal_ranking_can_make_more_words_mean_a_lower_score():
                    for prev, nxt in zip(seq[:-1], seq[1:])
                    if nxt[i].score < prev[i].score)
 
-    goal = drops({m: st.arms[f"beam8x{m}"] for m in mults})
+    goal = drops({m: st.arms[f"goal_x{m}"] for m in mults})
     cover = drops({m: st.arms[f"coverage_x{m}"] for m in mults})
     assert cover == 0, "a budget is a floor under the score; the coverage ranking broke it"
     log = (DATA.parent / "planning_eval.log").read_text(encoding="utf-8-sig")
@@ -939,7 +949,7 @@ def test_re_asking_a_blind_floor_is_what_leaves_those_cvs_with_evidence():
     returns nothing at all for a requirement whose passages all sit under it, and a policy
     that cannot re-ask then plans over an empty pool. planner.py's `relax` action is the
     answer, and the two CVs it saves are named here, because the fix costs ranking
-    (0.770 -> 0.752 in the log's section 5) and a future edit that drops it to pay that
+    (0.781 -> 0.777 in the log's section 5) and a future edit that drops it to pay that
     price back has to notice the two CVs coming back."""
     st = _planning_study()
     blind = [p.resume_id for p in st.arms["never_reask"] if not p.reads]
@@ -1133,8 +1143,7 @@ def test_the_planning_log_is_what_the_planner_still_produces():
     for tok in rows:
         assert len(tok) == 8, tok
         mult, order = float(tok[0]), tok[1]
-        store = (st.arms[f"beam8x{mult}"] if order == "goal"
-                 else st.arms[f"coverage_x{mult}"])
+        store = st.arms[f"{order}_x{mult}"]
         res = [st.PE.coverage_result(p.resume_id, p.terms, st.reqs) for p in store]
         m = metric_row(KeywordCoverageLLM(), order, "rag", res, st.labels, "tfidf")
         assert _matches(tok[2], m["spearman"]), tok[:2]

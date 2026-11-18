@@ -86,7 +86,10 @@ def main():
           f"top_k {TOP_K} | match fraction {KEYWORD_MATCH_FRACTION}")
     print(f"budget: the shipped evidence_budget(resume words), mean {round(np.mean(budgets))}"
           f" of a mean {round(np.mean([len(t.split()) for _, t in pairs]))}-word CV, "
-          f"range {min(budgets)}-{max(budgets)}\n")
+          f"range {min(budgets)}-{max(budgets)}")
+    print(f"state ranking: `rag/planner.py` DEFAULT_ORDER = {P.DEFAULT_ORDER} is what every "
+          f"arm below runs; section 3b scores both orderings side by side, and flipping that "
+          f"one constant re-runs the whole arm under the other\n")
     gold = [LABELS[rid] for rid, _ in pairs]
 
     print("1) the three policies that already exist, before any planning")

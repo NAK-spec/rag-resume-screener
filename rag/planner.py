@@ -34,10 +34,12 @@ Action model (STRIPS-style; one goal per requirement, satisfied at the shipped r
 Goal: maximise the mean ask coverage of the requirements within that word budget.
 
 Search: greedy best-first forward search with a beam. Nodes are ranked lexicographically
-by (requirements left unsatisfied, then graded coverage, then prompt words spent, then
-passage identity), which is a total order, so the plan is reproducible byte for byte.
-Beam width 1 is pure greedy - take the single best next action. Sweeping 1 / 8 / 24 is
-the test of whether looking ahead buys anything over that.
+by `DEFAULT_ORDER` - either distance to the goal (requirements still unsatisfied) then the
+graded mean, or the graded mean alone - then by prompt words spent, then by passage
+identity, so the ordering is total and the plan is reproducible byte for byte. Beam width
+1 is pure greedy - take the single best next action. Sweeping 1 / 8 / 24 is the test of
+whether looking ahead buys anything over that, and sweeping both orderings is the test of
+what the objective is worth (planning_eval.log sections 2, 3 and 3b).
 
 What this model assumes, stated before the numbers: the effect of `read` is known before
 the action runs, because the index holds every chunk's text (`ResumeIndex.build` gets it
@@ -63,6 +65,17 @@ from .screen import Result, build_prompt, evidence_budget
 BEAM = 8                 # nodes kept per search ply
 MAX_RELAX_ROUNDS = 3     # the floor is halved at most this many times per CV
 MIN_RELAX_FLOOR = 1e-4   # below this the floor is filtering nothing anyway
+
+# How search states are ranked, and therefore which plan wins. `goal` is the classical
+# STRIPS choice (unsatisfied requirements first); `coverage` ranks on the graded mean the
+# score is actually made of. planning_eval.log section 3b measures both at four budgets:
+# coverage is better at the deployed budget (+0.777 vs +0.752) and is the only budget-
+# monotone one (3 of 99 grid steps hand a CV a lower score for more words under `goal`,
+# 0 under coverage), while `goal` is nominally ahead at 2x budget (+0.789 vs +0.786), a
+# difference of 0.003 on 33 CVs. The deployed budget is the configuration this framework
+# ships, so the default follows the measurement; flip this one line to re-run the whole
+# arm under the classical ordering.
+DEFAULT_ORDER = "coverage"
 
 
 @dataclass
@@ -120,7 +133,7 @@ class _Node:
     covs: tuple
 
 
-def _rank(node: _Node, order: str = "goal"):
+def _rank(node: _Node, order: str = DEFAULT_ORDER):
     """Total order over states, and the one choice the planner has to make.
 
     `goal` is the classical one: distance to the goal first (requirements still
@@ -162,7 +175,7 @@ def _noisy_or(a, b):
 
 
 def _search(reqs, pool: dict, terms_of: dict, budget: int, beam: int, values=None,
-            order: str = "goal"):
+            order: str = DEFAULT_ORDER):
     """Forward search over `read` actions; pool is the readable set {idx: Chunk}.
 
     Returns (best node, nodes expanded). Every prefix of a plan is itself a feasible
@@ -234,7 +247,7 @@ def _record(plan: Plan, node: _Node, pool: dict) -> None:
 def plan_evidence(resume_id: str, jd: str, index, full_text: str, *,
                   beam: int = BEAM, budget: int = None, top_k: int = TOP_K,
                   floor: float = None, relax_rounds: int = MAX_RELAX_ROUNDS,
-                  order: str = "goal", values: dict = None) -> Plan:
+                  order: str = DEFAULT_ORDER, values: dict = None) -> Plan:
     """Search for the set of passages to put in the prompt, under a word budget.
 
     `budget` defaults to the same `evidence_budget(resume words)` the shipped RAG prompt
@@ -354,7 +367,7 @@ def _steps(plan: Plan, candidates: dict, floor: float, top_k: int) -> list:
 def screen_resume_planned(resume_id: str, jd: str, index, full_text: str, *,
                           beam: int = BEAM, budget: int = None, top_k: int = TOP_K,
                           floor: float = None, relax_rounds: int = MAX_RELAX_ROUNDS,
-                          order: str = "goal", values: dict = None) -> Result:
+                          order: str = DEFAULT_ORDER, values: dict = None) -> Result:
     """Plan the prompt, score it with the keyword-coverage rule, hand back a Result.
 
     The same Result record the LLM and the two no-model scorers produce, so the shared
